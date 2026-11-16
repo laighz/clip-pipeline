@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: local-recording-no-chat
+expected_outcome: |
+  Claude findet ohne Chat die Momente über Transkript/Audio (erster Boss, vergessener Schlüssel, Rekord am Ende), rendert 3 vertikale Clips mit Untertiteln und verändert die Originaldatei nicht.

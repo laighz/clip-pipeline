@@ -1,0 +1,78 @@
+# clipping-streams: Einstellungen und Tuning pro Streamer
+# Liegt als ~/clips/streamers.yaml. Alles ist optional: Fehlende Werte nehmen
+# die eingebauten Defaults, unbekannte Streamer laufen einfach mit "defaults".
+# Prüfen:  uv run <skill>/scripts/validate_config.py [--streamer <id>]
+
+defaults:
+  min_clip_s: 20            # kürzester Clip
+  max_clip_s: 60            # längster Clip (Musik/Claims: über 60 s sperrt YouTube Shorts weltweit)
+  chat_sigma: 1.5           # Chat-Spike ab 1,5 robusten Standardabweichungen über Baseline
+  reaction_offset_s: 22     # Chat reagiert ~22 s nach dem Moment (LIGHTOR: 23-27 s)
+  window_s: 25              # Fenster für Chat-Merkmale
+  min_spacing_s: 120        # Mindestabstand zwischen zwei Kandidaten
+  min_chat_per_hour: 500    # darunter zählt Audio mehr als Chat
+  top_candidates: 20        # so viele Kandidaten landen in candidates.json
+  section_pre_s: 60         # Video-Puffer vor dem geschätzten Moment
+  section_post_s: 30        # Video-Puffer nach dem Chat-Peak
+  baseline_s: 600           # Länge der rollenden Baseline
+  language: de              # Whisper-Sprache: de, en oder auto
+  credit: "Clip: @{channel} auf Twitch"   # Quellenzeile; {channel} wird ersetzt
+  blocked_categories: [Music, DJs]        # nur Warnung, kein Abbruch
+  emotes:                   # Emote-Kategorien (groß/klein wird beachtet)
+    funny: [KEKW, LUL, OMEGALUL, LULW, ICANT, xdd]
+    hype: [PogChamp, Pog, POGGERS, PogU, W]
+    shock: [monkaS, "D:", WutFace, monkaW]
+    sad: [Sadge, BibleThump, PepeHands]
+
+transcription:
+  backend: faster-whisper   # faster-whisper | whisper-cpp
+  faster_whisper:
+    model: small            # tiny | base | small | medium | large-v3
+    compute_type: int8
+    cpu_threads: 1          # >1 verschluckt auf CPU/int8 Sätze (nichtdeterministische Suche)
+    beam_size: 5
+    vad_filter: true
+  whisper_cpp:              # für später: Vulkan-Build von whisper.cpp
+    binary: whisper-cli     # Name im PATH oder voller Pfad
+    model: ~/clips/models/ggml-small.bin
+    threads: 6
+    extra_args: []
+
+render:
+  encoder: auto             # auto (aus check_env) | amf | x264
+  width: 1080
+  height: 1920
+  fps: 30
+  layout: auto              # auto: stack, wenn facecam bekannt, sonst blur | stack | blur | center
+  facecam_height: 608       # Höhe des Facecam-Streifens oben im stack-Layout
+  hook_duration_s: 4.0      # so lange steht der Hook oben im Bild
+  words_per_caption: 3      # Wörter pro Untertitel-Einblendung
+  loudnorm: "I=-16:TP=-1.5:LRA=11"
+  x264: {crf: 20, preset: veryfast}
+
+live:                       # Weg C, nur wenn der User ausdrücklich aufnehmen lässt
+  record_dir: ~/clips/raw/live   # große Rohdateien (~2,7 GB/h), gern auf eine HDD, z. B. D:/clips-live
+  quality: best             # streamlink-Qualität
+  segment_s: 600            # 10-Minuten-Segmente
+  max_hours: 10             # Aufnahme stoppt spätestens danach
+  min_free_gb: 15           # Aufnahme stoppt, wenn weniger frei ist
+  chat_window_s: 25
+  chat_baseline_s: 600
+  confirm_s: 3              # Sekunden in Folge über chat_sigma, bevor ein SPIKE gemeldet wird
+  cooldown_s: 120
+  min_uniq: 5
+
+streamers:
+  - id: beispielstreamer    # frei wählbar, nur a-z 0-9 _ -
+    platform: twitch        # Phase 1: nur twitch
+    channel: beispielstreamer
+    credit: "Clip: @beispielstreamer auf Twitch"
+    layout:
+      facecam: [1440, 810, 480, 270]   # x, y, Breite, Höhe im Quellbild (1920x1080)
+      game: null                        # null = mittiger Ausschnitt
+    blocked_categories: [Music, DJs, "Watch Party"]
+    tuning:                 # überschreibt einzelne defaults für diesen Streamer
+      reaction_offset_s: 20
+      emotes:
+        funny: [KEKW, LUL, OMEGALUL]
+        hype: [PogChamp, W]

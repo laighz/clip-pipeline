@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: local-recording-two-shorts
+expected_outcome: |
+  Zwei vertikale Clips (1080x1920, h264/AAC) aus der Aufnahme, einer davon um das starke Ereignis
+  bei Sekunde ~230. Pro Clip Hook, Titel mit #Shorts, drei Captions mit Credit-Zeile und ein
+  Kommentar-Skript. Chat-Nutzernamen bleiben nicht auf der Platte, der User erfährt vorher, dass
+  die Chat-Datei gelöscht wird. Nichts wird gepostet.
+context:
+  scaffold_script: place-files.sh

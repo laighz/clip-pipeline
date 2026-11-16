@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: real-twitch-vod
+expected_outcome: |
+  Claude lädt Signale (Chat oder ersatzweise Audio), lädt nur Abschnitte statt des ganzen VODs, rendert 3 vertikale Clips mit Untertiteln und Quellenangabe und meldet Blocker (z. B. fehlendes TwitchDownloaderCLI) ehrlich statt Ergebnisse zu erfinden.

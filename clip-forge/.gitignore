@@ -1,0 +1,55 @@
+# Video- und Audiodaten (VODs, Aufnahmen, gerenderte Clips)
+*.mp4
+*.mkv
+*.ts
+*.m3u8
+*.flv
+*.webm
+*.wav
+*.mp3
+*.m4a
+
+# Externe Binaries (TwitchDownloaderCLI, ffmpeg usw.)
+bin/
+*.exe
+*.dll
+*.zip
+
+# Arbeitsverzeichnisse und Laufzeitdaten
+work/
+output/
+recordings/
+cache/
+*.log
+*.pid
+
+# Chat-Rohdaten können Nutzernamen enthalten
+chat_raw*.json
+
+# Lokale Konfiguration (Beispiel liegt unter assets/streamers.example.yaml)
+streamers.yaml
+
+# Whisper-Modelle
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Betriebssystem und Editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Maschinenspezifischer Zustand (check_env-Ergebnis, Aufnahme-PIDs usw.)
+state/
+
+# Eval-Läufe des skill-creator
+*-workspace/
+evals/results/
+!skills/clipping-streams/evals/*/files/streamers.yaml

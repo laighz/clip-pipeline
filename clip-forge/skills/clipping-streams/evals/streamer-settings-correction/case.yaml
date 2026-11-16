@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: streamer-settings-correction
+expected_outcome: |
+  streamers.yaml enthält für teststreamer reaction_offset_s 15 und max_clip_s 45, die übrigen
+  Einträge und Kommentare bleiben erhalten, eine Sicherung existiert, die Config ist gültig, und
+  der User erfährt in einem Satz, was gespeichert wurde.
+context:
+  scaffold_script: place-files.sh

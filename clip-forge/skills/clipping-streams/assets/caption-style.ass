@@ -1,0 +1,23 @@
+[Script Info]
+; Vorlage für render_clip.py. Nur [V4+ Styles] anpassen, Events erzeugt das Skript.
+; Farben: &HAABBGGRR (Alpha, Blau, Grün, Rot). Gelb = &H0000E5FF.
+; Caption: Wort-Untertitel, aktives Wort in SecondaryColour (gelb).
+; Hook: Text oben in den ersten Sekunden (BorderStyle 3 = Kasten hinter dem Text).
+; Credit: kleine Quellenzeile unten (nur wenn render.burn_credit: true).
+Title: clipping-streams captions
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,Arial Black,86,&H00FFFFFF,&H0000E5FF,&H00000000,&H78000000,-1,0,0,0,100,100,0,0,1,7,3,2,70,70,560,1
+; Hook sitzt auf der Naht zwischen Facecam-Streifen (oben, ~608 px) und Spielbild, nicht über dem Gesicht.
+Style: Hook,Arial Black,66,&H00FFFFFF,&H00FFFFFF,&H00101010,&HC8101010,-1,0,0,0,100,100,0,0,3,20,0,8,80,80,520,1
+Style: Credit,Arial,34,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,40,40,60,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

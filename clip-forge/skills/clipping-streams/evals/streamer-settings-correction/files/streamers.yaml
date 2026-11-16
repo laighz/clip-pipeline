@@ -1,0 +1,18 @@
+# clipping-streams: Einstellungen pro Streamer
+defaults:
+  min_clip_s: 20
+  max_clip_s: 60
+
+streamers:
+  - id: teststreamer        # Test-Kanal, nicht löschen
+    platform: twitch
+    channel: teststreamer
+    layout:
+      facecam: [40, 40, 480, 270]
+      game:
+  - id: anderer
+    platform: twitch
+    channel: anderer
+    layout:
+      facecam: false
+      game:

@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: best-moments-no-render
+expected_outcome: |
+  Eine Liste der besten Momente mit Zeitstempeln: das starke Ereignis bei ~3:50 (230 s) und das
+  mittlere bei ~1:30 (90 s). Nichts aus dem stummen Bereich 5:00-5:30. Es wird kein Clip gerendert.
+context:
+  scaffold_script: place-files.sh
