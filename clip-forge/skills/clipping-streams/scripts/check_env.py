@@ -25,12 +25,14 @@ import _lib
 
 REQUIRED = ["ffmpeg", "ffprobe", "yt-dlp", "TwitchDownloaderCLI"]
 OPTIONAL = ["uv", "whisper-cli", "streamlink", "deno"]
+_MAC = sys.platform == "darwin"
 HINTS = {
-    "ffmpeg": "winget install --id Gyan.FFmpeg -e",
-    "ffprobe": "winget install --id Gyan.FFmpeg -e",
-    "yt-dlp": "winget install --id yt-dlp.yt-dlp -e",
-    "TwitchDownloaderCLI": "GitHub-Release lay295/TwitchDownloader (CLI, Windows-x64) nach ~/clips/bin/ entpacken",
-    "uv": "winget install --id astral-sh.uv -e",
+    "ffmpeg": "brew install ffmpeg-full" if _MAC else "winget install --id Gyan.FFmpeg -e",
+    "ffprobe": "brew install ffmpeg-full" if _MAC else "winget install --id Gyan.FFmpeg -e",
+    "yt-dlp": "brew install yt-dlp" if _MAC else "winget install --id yt-dlp.yt-dlp -e",
+    "TwitchDownloaderCLI": "GitHub-Release lay295/TwitchDownloader (CLI, "
+                           + ("MacOSArm64" if _MAC else "Windows-x64") + ") nach ~/clips/bin/ entpacken",
+    "uv": "brew install uv" if _MAC else "winget install --id astral-sh.uv -e",
     "whisper-cli": "nur für transcription.backend: whisper-cpp (Phase 1 optional)",
     "streamlink": "erst für den Live-Modus (Phase 2)",
     "deno": "erst für YouTube (Phase 2)",
@@ -95,6 +97,11 @@ def find_browser() -> str | None:
             Path(base) / "BraveSoftware" / "Brave-Browser" / "Application" / "brave.exe",
             Path(base) / "Chromium" / "Application" / "chrome.exe",
         ]
+    if sys.platform == "darwin":
+        for app, binary in (("Google Chrome", "Google Chrome"), ("Microsoft Edge", "Microsoft Edge"),
+                            ("Brave Browser", "Brave Browser"), ("Chromium", "Chromium")):
+            for root in (Path("/Applications"), Path.home() / "Applications"):
+                candidates.append(root / f"{app}.app" / "Contents" / "MacOS" / binary)
     for name in ("chrome", "msedge", "chromium", "chromium-browser", "google-chrome", "brave"):
         hit = shutil.which(name)
         if hit:

@@ -43,8 +43,24 @@ SENTINEL_TEXT = "SENTINELTEXT_qq7"
 def tts(text: str, wav: Path) -> None:
     """Windows SAPI (System.Speech), deutsche Stimme falls vorhanden.
 
-    Ohne PowerShell (Linux/macOS): espeak-ng oder espeak, falls installiert.
+    macOS: `say` (deutsche Stimme Anna, falls vorhanden).
+    Sonst ohne PowerShell (Linux): espeak-ng oder espeak, falls installiert.
     """
+    if sys.platform == "darwin" and shutil.which("say"):
+        voices = subprocess.run(["say", "-v", "?"], capture_output=True, text=True).stdout
+        voice = next((line.split()[0] for line in voices.splitlines() if "de_DE" in line), None)
+        raw = wav.with_suffix(".say.wav")
+        cmd = ["say", "-o", str(raw), "--file-format=WAVE", "--data-format=LEI16@22050"]
+        if voice:
+            cmd += ["-v", voice]
+        subprocess.run([*cmd, text], check=True)
+        # say ist deutlich lauter als espeak -a 40; leiser machen, sonst übertönt die
+        # Sprache bei 80 s das mittlere Ereignis bei 90 s.
+        ffmpeg = _lib.find_tool("ffmpeg") or "ffmpeg"
+        subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
+                        "-af", "volume=0.2", str(wav)], check=True)
+        raw.unlink()
+        return
     if not shutil.which("powershell"):
         engine = shutil.which("espeak-ng") or shutil.which("espeak")
         if not engine:

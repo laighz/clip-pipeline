@@ -227,14 +227,16 @@ Kommentar-Skript enthält, was verworfen wurde und warum. Voice-over mischt
 dieser Skill nicht ein.
 
 Posten macht [content-syndicator](../../../content-syndicator), der Ordner neben
-clip-forge: `C:\Users\morit\Documents\.code\content-syndicator`. Er liest
+clip-forge: `<root>/content-syndicator`, `<root>` ist der Ordner `clip-pipeline` (macOS
+`/Users/moritz/Documents/#code/clip-pipeline/content-syndicator`, Windows
+`C:\Users\morit\Documents\.code\clip-pipeline\content-syndicator`). Er liest
 `~/clips/out/<vod-id>/clipXX.mp4` und die Caption aus der danebenliegenden
 `clipXX.txt`. Ohne `--publish` nur zeigen. `--publish` nur, wenn der User
 ausdrücklich posten will. Die Anmeldung im Browser macht der User, keine
 Passwörter.
 
-```powershell
-cd C:\Users\morit\Documents\.code\content-syndicator
+```bash
+cd "<root>/content-syndicator"
 uv run scripts/post_clips.py --vod-id <vod-id>
 uv run scripts/post_clips.py --vod-id <vod-id> --publish
 ```
