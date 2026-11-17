@@ -65,6 +65,17 @@ Vor jedem `--publish` erst `--check`. Fehlt eine Plattform, dem User sagen, dass
 
 YouTube, TikTok und Instagram bekommen den Text aus ihrem Block in `clipXX.txt`. X und Snapchat bekommen den TikTok-Text, gekürzt. Das Voice-over-Skript wird nicht gepostet und nicht ins Video gemischt.
 
+## Wenn post_clips.py scheitert (Stand Nov 2026)
+
+Per Hand posten nur, wenn der User es ausdrücklich erlaubt. Dann Chrome mit dem Profil als Hintergrundprozess starten (`--user-data-dir=~/clips/state/browser --remote-debugging-port=9333`), per Playwright `connect_over_cdp` bedienen und nach jedem Schritt einen Screenshot ansehen.
+
+- TikTok Studio: alten Entwurf mit „Discard“ verwerfen, Modal „automatic content checks“ mit Cancel und „Got it“ schließen. Danach greift `div[contenteditable]`. Post-Button: `button[data-e2e=post_video_button]`. „Only me / under review“ direkt nach dem Posten ist normal und wechselt danach zu Everyone.
+- Instagram: neues UI, der Create-Button ist `svg[aria-label="Post"]`. Reels-Hinweis mit OK bestätigen, Crop auf „Original“, 2× Next, Hashtag-Dropdown durch Klick auf den Kontonamen schließen, dann Share.
+- YouTube: `post_clips.py` meldet „posted“, legt die Shorts aber nur als privaten Entwurf ohne Titel an. Immer im Studio prüfen: Content → Tab *Shorts* (der Tab *Videos* zeigt keine Shorts). Entwurf öffnen, Titel (`#title-textarea #textbox`) und Beschreibung setzen, „Not made for kids“ wählen, 3× `#next-button`, `PUBLIC`, dann `#done-button`. Danach muss „Video published“ erscheinen.
+- X: Klick auf `tweetButton` im Dialog funktioniert. Danach kann das Modal „Unlock more on X“ (graduated-access) kommen, der Post ist trotzdem raus. Am Profil prüfen.
+- Snapchat (profile.snapchat.com → „Post to Snapchat“ → Spotlight): scheitert mit `PERMISSION_DENIED: Organization not spend ready`. Das ist eine Konto-/Business-Einstellung, die der User selbst klären muss.
+- `references/platform-rules.md` fehlt in clip-forge. Captions nach dem Schema in clips.json schreiben.
+
 ## Über Messenger (WhatsApp, Telegram, …)
 
 Läuft die Session über ein Gateway, sieht der User kein Terminal:
