@@ -53,7 +53,15 @@ uv run scripts/post_clips.py --vod-id <vod-id>
 uv run scripts/post_clips.py --vod-id <vod-id> --publish
 ```
 
-Chromium einmal: `uv run --with playwright python -m playwright install chromium`. Die Anmeldung macht der User im Fenster. Keine Passwörter erfragen oder eintippen. Das Profil liegt unter `~/clips/state/browser`.
+Browser einmal anmelden. `login.py` startet Google Chrome (sonst Edge oder Brave, oder `CLIPS_BROWSER`) ganz normal, ohne Automatisierung, mit dem eigenen Profil unter `~/clips/state/browser` und je einem Tab pro Plattform. Der User meldet sich selbst an und beendet den Browser mit Cmd+Q. Keine Passwörter erfragen oder eintippen. Playwright-Chromium nicht zum Anmelden nehmen: Google lehnt dort ab („Dieser Browser ist unter Umständen nicht sicher“).
+
+```bash
+cd "<root>/content-syndicator"
+uv run scripts/login.py            # Fenster zum Anmelden, wartet bis Cmd+Q
+uv run scripts/login.py --check    # ohne Fenster: Exit 0 = alle angemeldet, 5 = "missing" nennt die fehlenden
+```
+
+Vor jedem `--publish` erst `--check`. Fehlt eine Plattform, dem User sagen, dass er sich am Mac mit `login.py` anmelden muss, und diese Plattform per `--platforms` weglassen. Über WhatsApp geht die Anmeldung nicht.
 
 YouTube, TikTok und Instagram bekommen den Text aus ihrem Block in `clipXX.txt`. X und Snapchat bekommen den TikTok-Text, gekürzt. Das Voice-over-Skript wird nicht gepostet und nicht ins Video gemischt.
 

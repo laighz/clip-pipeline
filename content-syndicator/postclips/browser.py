@@ -5,6 +5,8 @@ bleibt das Fenster offen, bis du dich selbst einloggst.
 """
 from __future__ import annotations
 
+import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -30,6 +32,42 @@ OPEN = {
 
 class StepError(RuntimeError):
     pass
+
+
+def find_browser() -> str | None:
+    """Installierten Chromium-Browser finden (CLIPS_BROWSER, sonst Chrome/Edge/Brave).
+
+    Google lehnt Anmeldungen im Playwright-Chromium ("Chrome for Testing") ab.
+    Mit dem echten Browser meldet sich der User ohne Automatisierung an
+    (scripts/login.py), und das Posten nutzt dasselbe Programm mit demselben
+    Profil, damit die Cookies lesbar bleiben. None = Playwright-Chromium.
+    """
+    env = os.environ.get("CLIPS_BROWSER")
+    if env:
+        return env if Path(env).expanduser().is_file() else None
+    candidates: list[Path] = []
+    if sys.platform == "darwin":
+        for app in ("Google Chrome", "Microsoft Edge", "Brave Browser"):
+            for root in (Path("/Applications"), Path.home() / "Applications"):
+                candidates.append(root / f"{app}.app" / "Contents" / "MacOS" / app)
+    elif os.name == "nt":
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"),
+                     os.environ.get("LOCALAPPDATA")):
+            if base:
+                candidates += [
+                    Path(base) / "Google" / "Chrome" / "Application" / "chrome.exe",
+                    Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+                    Path(base) / "BraveSoftware" / "Brave-Browser" / "Application" / "brave.exe",
+                ]
+    else:
+        for name in ("google-chrome", "chromium", "microsoft-edge", "brave-browser", "brave"):
+            hit = shutil.which(name)
+            if hit:
+                candidates.append(Path(hit))
+    for cand in candidates:
+        if cand.is_file():
+            return str(cand)
+    return None
 
 
 class Session:
@@ -252,6 +290,10 @@ def publish(home: Path, vod_id: str, platforms: list[str], only: set[str] | None
         try:
             context = playwright.chromium.launch_persistent_context(
                 user_data_dir=str(profile),
+                executable_path=find_browser(),
+                # Echter Browser: Cookies sind mit dem Schlüsselbund verschlüsselt.
+                # Playwrights Mock-Keychain könnte sie nicht lesen.
+                ignore_default_args=["--use-mock-keychain"] if find_browser() else None,
                 headless=headless,
                 viewport={"width": 1400, "height": 900},
                 locale="de-DE",
