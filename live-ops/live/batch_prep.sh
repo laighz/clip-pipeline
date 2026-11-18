@@ -4,7 +4,7 @@
 S="/Users/moritz/Documents/#code/clip-pipeline/clip-forge/skills/clipping-streams"
 D=~/.hermes/cache/scratch/live
 OUT=$D/batch_summary.txt; : > $OUT
-RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in montanablack88 zarbex ohnepixel trymacs xrohat papaplatte; do ls -t ~/clips/raw/live | grep "^$CH-" | head -1; done)
+RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in montanablack88 zarbex ohnepixel trymacs xrohat papaplatte; do ls -t ~/clips/raw/live | grep "^$CH-" | head -3; done)
 for R in $RECS; do
   CH=${R%-*-*}
   LANG=de; [ "$CH" = "ohnepixel" ] && LANG=en
