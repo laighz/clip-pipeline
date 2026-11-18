@@ -149,6 +149,19 @@ for ch in stale:
     st.pop(ch)
 if not DRY: json.dump(st, open(STATE, 'w'))
 
+# Channels no longer in the watch list (batch_prep.sh) and not recording: raw is useless -> delete
+import re
+try:
+    watch = set(re.search(r'for CH in ([^;]+);', open(f'{LIVE}/batch_prep.sh').read()).group(1).split())
+except Exception:
+    watch = None
+if watch:
+    for d in glob.glob(f'{RAW}/*') + glob.glob(f'{TRASH}/*'):
+        ch = os.path.basename(d).rsplit('-', 2)[0]
+        if ch not in watch and d not in alive and os.path.isdir(d):
+            log(f'{ch} not watched anymore: delete {os.path.basename(d)}')
+            if not DRY: shutil.rmtree(d, ignore_errors=True)
+
 trashable, protected = [], []
 for rec in sorted(os.listdir(RAW)):
     d = f'{RAW}/{rec}'

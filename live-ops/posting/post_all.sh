@@ -17,7 +17,7 @@ esac; }
 # Voice-over (Lars) einmal vor dem ersten Upload
 [ -f ~/clips/out/$V/$C.novo.mp4 ] || python3 ~/.hermes/cache/scratch/live/vo_mix.py $V $C >> ~/.hermes/cache/scratch/live/vo.log 2>&1 || echo "VO: fehlgeschlagen, poste ohne"
 FIRST=1
-for P in $(printf "YT\nTT\nX\nSC\nIG\n" | sort -R); do
+for P in $(printf "YT\nTT\nX\nSC\nIG\n" | sort -R | grep -vxE "${SKIP:-NONE}"); do
   if [ "$P" = "YT" ]; then
     B=~/.hermes/cache/scratch/live/YT_BLOCKED
     if [ -f $B ] && [ $(date +%s) -lt $(cat $B) ]; then echo "YT: skipped (Upload-Limit-Pause)"; continue; fi
@@ -32,7 +32,7 @@ for P in $(printf "YT\nTT\nX\nSC\nIG\n" | sort -R); do
     [ "$N24" -ge 3 ] && { echo "IG: skipped (max 3 Reels / 24 h)"; continue; }
     [ $(( NOW - LAST )) -lt 14400 ] && { echo "IG: skipped (min 4 h Abstand)"; continue; }
   fi
-  [ $FIRST = 1 ] || sleep $(( 600 + RANDOM % 3000 ))
+  [ $FIRST = 1 ] || sleep $(( 600 + RANDOM % 1800 ))
   FIRST=0
   lock; post $P; unlock
 done

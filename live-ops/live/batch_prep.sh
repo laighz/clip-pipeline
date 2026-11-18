@@ -4,10 +4,10 @@
 S="/Users/moritz/Documents/#code/clip-pipeline/clip-forge/skills/clipping-streams"
 D=~/.hermes/cache/scratch/live
 OUT=$D/batch_summary.txt; : > $OUT
-RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in montanablack88 zarbex ohnepixel trymacs xrohat papaplatte; do ls -t ~/clips/raw/live | grep "^$CH-" | head -3; done)
+RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in eliasn97 zarbex trymacs caseoh_ kaicenat zackrawrr; do ls -t ~/clips/raw/live | grep "^$CH-" | head -3; done)
 for R in $RECS; do
   CH=${R%-*-*}
-  LANG=de; [ "$CH" = "ohnepixel" ] && LANG=en
+  LANG=de; case $CH in ohnepixel|caseoh_|kaicenat|zackrawrr|lacy) LANG=en;; esac
   uv run --quiet "$S/scripts/live_prepare.py" --rec-id $R >/dev/null 2>&1 || { echo "$R: kein Segment" >> $OUT; continue; }
   uv run --quiet "$S/scripts/detect_highlights.py" --vod-id $R --top 40 >/dev/null 2>&1
   C=$(python3 - "$R" <<'PY'
