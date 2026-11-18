@@ -32,7 +32,7 @@ for P in $(printf "YT\nTT\nX\nSC\nIG\n" | sort -R | grep -vxE "${SKIP:-NONE}"); 
     [ "$N24" -ge 3 ] && { echo "IG: skipped (max 3 Reels / 24 h)"; continue; }
     [ $(( NOW - LAST )) -lt 14400 ] && { echo "IG: skipped (min 4 h Abstand)"; continue; }
   fi
-  [ $FIRST = 1 ] || sleep $(( 600 + RANDOM % 1800 ))
+  [ $FIRST = 1 ] || sleep $(( ${GAPMIN:-600} + RANDOM % ${GAPSPAN:-1800} ))
   FIRST=0
   lock; post $P; unlock
 done

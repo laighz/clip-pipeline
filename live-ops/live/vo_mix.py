@@ -36,8 +36,8 @@ dur = float(subprocess.check_output(['ffprobe', '-v', 'error', '-show_entries', 
 src = out + f'{clip}.novo.mp4'
 if not os.path.exists(src): os.rename(out + f'{clip}.mp4', src)
 d = dur + 0.3
-filt = (f"[0:a]volume='if(lt(t,{d:.2f}),0.25,1)':eval=frame[a0];"
-        f"[1:a]adelay=200|200,volume=1.6[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0,"
+filt = (f"[0:a]volume='if(lt(t,{d:.2f}),0.12,1)':eval=frame[a0];"
+        f"[1:a]adelay=200|200,volume=2.0[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0,"
         f"loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[a]")
 subprocess.check_call(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', src, '-i', mp3,
                        '-filter_complex', filt, '-map', '0:v', '-map', '[a]', '-c:v', 'copy',
