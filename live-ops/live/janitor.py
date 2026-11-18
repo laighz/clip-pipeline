@@ -105,6 +105,18 @@ grace = clamp((free_h - RESERVE_H) / 6, 1 / 6, 2) * 3600
 ev, pin = evals(), pins()
 log(f'free {fg:.1f} GB, burn {burn:.1f} GB/h -> {free_h:.1f} h left; ttl {ttl/60:.0f} min, grace {grace/60:.0f} min')
 
+# Streamer offline > OFFLINE_MIN: delete ALL raw of that channel (user rule). Supervisors keep running.
+OFFLINE_MIN = 30
+chan_last = {}
+for d in glob.glob(f'{RAW}/*'):
+    fs = glob.glob(f'{d}/seg_*.ts') + glob.glob(f'{d}/*.jsonl')
+    if fs: ch = os.path.basename(d).rsplit('-', 2)[0]; chan_last[ch] = max(chan_last.get(ch, 0), *map(os.path.getmtime, fs))
+for ch, t in chan_last.items():
+    if now - t > OFFLINE_MIN * 60 and not any(os.path.basename(a).startswith(ch + '-') for a in alive):
+        for d in glob.glob(f'{RAW}/{ch}-*') + glob.glob(f'{TRASH}/{ch}-*'):
+            log(f'offline {ch} > {OFFLINE_MIN} min: delete {os.path.basename(d)}')
+            if not DRY: shutil.rmtree(d, ignore_errors=True)
+
 trashable, protected = [], []
 for rec in sorted(os.listdir(RAW)):
     d = f'{RAW}/{rec}'
