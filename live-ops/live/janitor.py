@@ -111,11 +111,43 @@ chan_last = {}
 for d in glob.glob(f'{RAW}/*'):
     fs = glob.glob(f'{d}/seg_*.ts') or [f'{d}/segments.csv']*os.path.exists(f'{d}/segments.csv')
     if fs: ch = os.path.basename(d).rsplit('-', 2)[0]; chan_last[ch] = max(chan_last.get(ch, 0), *map(os.path.getmtime, fs))
-for ch, t in chan_last.items():
-    if now - t > OFFLINE_MIN * 60 and not any(os.path.basename(a).startswith(ch + '-') for a in alive):
-        for d in glob.glob(f'{RAW}/{ch}-*') + glob.glob(f'{TRASH}/{ch}-*'):
-            log(f'offline {ch} > {OFFLINE_MIN} min: delete {os.path.basename(d)}')
-            if not DRY: shutil.rmtree(d, ignore_errors=True)
+import urllib.request
+def net_ok():
+    # our own internet: need 2 of 3 well-known hosts reachable
+    ok = 0
+    for u in ('https://www.twitch.tv', 'https://www.google.com', 'https://1.1.1.1'):
+        try: urllib.request.urlopen(urllib.request.Request(u, method='HEAD'), timeout=6); ok += 1
+        except Exception: pass
+    return ok >= 2
+def twitch_offline(ch):
+    # True only if Twitch explicitly says offline; None if unknown
+    try:
+        r = urllib.request.urlopen(f'https://decapi.me/twitch/uptime/{ch}', timeout=8).read().decode().lower()
+    except Exception: return None
+    if 'is offline' in r: return True
+    if 'hour' in r or 'minute' in r or 'second' in r: return False
+    return None
+STATE = f'{LIVE}/offline_state.json'
+st = json.load(open(STATE)) if os.path.exists(STATE) else {}
+stale = [ch for ch, t in chan_last.items() if now - t > OFFLINE_MIN * 60 and not any(os.path.basename(a).startswith(ch + '-') for a in alive)]
+if stale and not alive and len(stale) == len(chan_last):
+    log('all channels stalled at once -> probably OUR outage, no offline deletes'); stale = []
+if stale and not net_ok():
+    log('own internet down -> no offline deletes'); stale = []
+for ch in list(st):
+    if ch not in stale: st.pop(ch)
+for ch in stale:
+    off = twitch_offline(ch)
+    if off is not True:
+        st.pop(ch, None); log(f'{ch}: no new video >{OFFLINE_MIN} min but Twitch says {"live" if off is False else "unknown"} -> keep'); continue
+    st[ch] = st.get(ch, 0) + 1
+    if st[ch] < 2:
+        log(f'{ch}: Twitch offline (1/2 checks) -> delete on next run if still offline'); continue
+    for d in glob.glob(f'{RAW}/{ch}-*') + glob.glob(f'{TRASH}/{ch}-*'):
+        log(f'offline {ch} > {OFFLINE_MIN} min (net ok, Twitch offline 2x): delete {os.path.basename(d)}')
+        if not DRY: shutil.rmtree(d, ignore_errors=True)
+    st.pop(ch)
+if not DRY: json.dump(st, open(STATE, 'w'))
 
 trashable, protected = [], []
 for rec in sorted(os.listdir(RAW)):
