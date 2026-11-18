@@ -9,7 +9,7 @@ for R in $RECS; do
   CH=${R%-*-*}
   LANG=de; [ "$CH" = "ohnepixel" ] && LANG=en
   uv run --quiet "$S/scripts/live_prepare.py" --rec-id $R >/dev/null 2>&1 || { echo "$R: kein Segment" >> $OUT; continue; }
-  uv run --quiet "$S/scripts/detect_highlights.py" --vod-id $R --top 15 >/dev/null 2>&1
+  uv run --quiet "$S/scripts/detect_highlights.py" --vod-id $R --top 40 >/dev/null 2>&1
   C=$(python3 - "$R" <<'PY'
 import json,os,sys
 R=sys.argv[1]
