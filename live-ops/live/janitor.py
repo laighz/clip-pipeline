@@ -109,7 +109,7 @@ log(f'free {fg:.1f} GB, burn {burn:.1f} GB/h -> {free_h:.1f} h left; ttl {ttl/60
 OFFLINE_MIN = 30
 chan_last = {}
 for d in glob.glob(f'{RAW}/*'):
-    fs = glob.glob(f'{d}/seg_*.ts') + glob.glob(f'{d}/*.jsonl')
+    fs = glob.glob(f'{d}/seg_*.ts') or [f'{d}/segments.csv']*os.path.exists(f'{d}/segments.csv')
     if fs: ch = os.path.basename(d).rsplit('-', 2)[0]; chan_last[ch] = max(chan_last.get(ch, 0), *map(os.path.getmtime, fs))
 for ch, t in chan_last.items():
     if now - t > OFFLINE_MIN * 60 and not any(os.path.basename(a).startswith(ch + '-') for a in alive):
