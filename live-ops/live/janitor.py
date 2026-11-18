@@ -13,7 +13,7 @@ Pipeline per run:
       - older than ttl (by file mtime = end of segment)
       - not protected. Protected = contains (±60 s) a candidate that
           * was evaluated with score >= KEEP_SCORE and never posted (user may want it later), or
-          * is not evaluated yet and has a strong raw signal (score >= 8) and is < 2 h old,
+          * is not evaluated yet and has a strong raw signal (score >= 5) and is < 2 h old,
           * or is listed in keep.txt (manual pin: "<rec> <seconds>")
         Protected segments are kept up to PROTECT_MAX_H, unless disk is critical.
  4. Trash = move into ~/clips/trash/<rec>/ (same volume, instant, restorable with --restore <rec>).
@@ -135,7 +135,7 @@ for rec in sorted(os.listdir(RAW)):
             st = ev.get((rec, c['id']))
             if st == 'posted': continue
             if isinstance(st, (int, float)) and st >= KEEP_SCORE and st > best: best, reason = st, f"{c['id']} eval {st:.0f}"
-            if st is None and c['score'] >= 8 and age < 7200 and 40 > best: best, reason = 40, f"{c['id']} pending raw {c['score']:.1f}"
+            if st is None and c['score'] >= 5 and age < 7200 and 40 > best: best, reason = 40, f"{c['id']} pending raw {c['score']:.1f}"
         for t in pin.get(rec, []):
             if s - 60 <= t <= e + 60: best, reason = 999, f'pin {t:.0f}s'
         item = (age, p, rec, best, reason)

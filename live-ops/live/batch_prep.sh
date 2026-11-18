@@ -23,7 +23,9 @@ secs=set()
 sp=w+'sections.json'
 if os.path.exists(sp):
     for s in json.load(open(sp))['sections']: secs.update(s.get('candidates',[]))
-ok=[c for c in sorted(cands,key=lambda c:-c['score']) if (R,c['id']) not in seen and c['id'] not in secs and c['moment_s']+60<=dur and c['score']>=3]
+segs=json.load(open(w+'meta.json')).get('segments',[])
+have=lambda t: any(g['start']-30<=t<=g['end']+30 and os.path.exists(g['file']) for g in segs)
+ok=[c for c in sorted(cands,key=lambda c:-c['score']) if have(c['moment_s']) and (R,c['id']) not in seen and c['id'] not in secs and c['moment_s']+60<=dur and c['score']>=3]
 print(','.join(c['id'] for c in ok[:2]))
 PY
 )
