@@ -22,7 +22,13 @@ for i in range(60):
     txt=dlg.inner_text()
     if 'Uploading' not in txt and 'Hochladen' not in txt: break
     pg.wait_for_timeout(3000)
-dlg.locator('#done-button').click(); pg.wait_for_timeout(8000)
+dlg.locator('#done-button').click(); pg.wait_for_timeout(3000)
+# YT may still be running checks: confirm with "Publish anyway" (user rule)
+for name in ('Publish anyway', 'Trotzdem veröffentlichen'):
+    pa = pg.get_by_role('button', name=name)
+    if pa.count():
+        pa.first.click(); print('clicked:', name); pg.wait_for_timeout(3000); break
+pg.wait_for_timeout(5000)
 body=pg.locator('body').inner_text()
 import re
 m=re.search(r'https://youtube\.com/shorts/[\w-]+',body)
