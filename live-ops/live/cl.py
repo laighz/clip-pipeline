@@ -15,6 +15,8 @@ def words(rec, sec, a, b):
 
 def cap(ch, y, t, i, game='gta6', x=None, sc=None):
     """Distinct text + hashtags per platform (anti-spam). x/sc default to variants of t/y."""
+    import re
+    y, t, i = (re.sub(r'\s*Clip: @\w+ auf Twitch\.?', '', v).strip() for v in (y, t, i))
     G = game or ''
     return {"youtube": f"{y} Clip: @{ch} auf Twitch #Shorts #{G} #{ch}",
             "tiktok": f"{t} Clip: @{ch} auf Twitch #{G} #{ch} #gaming",
@@ -84,7 +86,9 @@ def show(pairs, n=600):
         secs = json.load(open(W(r) + 'sections.json'))['sections']
         cands = {c['id']: c for c in json.load(open(W(r) + 'candidates.json'))['candidates']}
         for c in cs:
-            s = next(x for x in secs if c in x['candidates'])
+            s = next((x for x in secs if c in x['candidates']), None)
+            if not s or not os.path.exists(W(r) + f"transcripts/{s['id']}.txt"):
+                print(f"## {r.rsplit('-',2)[0]} {c}: kein Transkript (Segment fehlt)"); continue
             txt = open(W(r) + f"transcripts/{s['id']}.txt").read().split('\n', 1)[1]
             print(f"## {r.rsplit('-',2)[0]} {c} sc={cands[c]['score']}")
             print(' | '.join(l.split('] ', 1)[-1][:80] for l in txt.splitlines())[:n])

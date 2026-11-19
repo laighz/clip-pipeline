@@ -22,15 +22,18 @@ for P in $(printf "YT\nTT\nX\nSC\nIG\n" | sort -R | grep -vxE "${SKIP:-NONE}"); 
     B=~/.hermes/cache/scratch/live/YT_BLOCKED
     if [ -f $B ] && [ $(date +%s) -lt $(cat $B) ]; then echo "YT: skipped (Upload-Limit-Pause)"; continue; fi
     NOW=$(date +%s); N24=$(awk -v n=$NOW '$1>n-86400' ~/.hermes/cache/scratch/live/yt_posts.log 2>/dev/null | wc -l | tr -d ' ')
-    [ "$N24" -ge 5 ] && { echo "YT: skipped (max 5 Shorts / 24 h)"; continue; }
+    [ "$N24" -ge 10 ] && { echo "YT: skipped (max 10 Shorts / 24 h)"; continue; }
   fi
   if [ "$P" = "IG" ]; then
     [ -f ~/.hermes/cache/scratch/live/IG_BLOCKED ] && { echo "IG: skipped (blocked)"; continue; }
     NOW=$(date +%s); L=~/.hermes/cache/scratch/live/ig_posts.log
     N24=$(awk -v n=$NOW '$1>n-86400' $L 2>/dev/null | wc -l | tr -d ' ')
     LAST=$(tail -1 $L 2>/dev/null || echo 0)
+    F=~/.hermes/cache/scratch/live/IG_FORCE; if [ -f $F ] && grep -qx "$V $C" $F; then sed -i '' "/^$V $C\$/d" $F; echo "IG: Limit vom User freigegeben";
+    else
     [ "$N24" -ge 3 ] && { echo "IG: skipped (max 3 Reels / 24 h)"; continue; }
     [ $(( NOW - LAST )) -lt 14400 ] && { echo "IG: skipped (min 4 h Abstand)"; continue; }
+    fi
   fi
   [ $FIRST = 1 ] || sleep $(( ${GAPMIN:-600} + RANDOM % ${GAPSPAN:-1800} ))
   FIRST=0

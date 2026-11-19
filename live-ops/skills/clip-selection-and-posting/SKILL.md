@@ -44,6 +44,7 @@ Zwei Modi. Der User wählt; im Zweifel Standard.
 - Über WhatsApp nur bei Ergebnissen, nötigen Entscheidungen oder auf `/status` melden, keine Zwischenstände pro Schritt.
 
 ## Posten
+- Schwellen (User, 19.11.2026): Score ≥ 80 sofort posten (alle Plattformen, Takt und Limits gelten). Bei 70–79 nicht posten, aber sichern: Clip fertig rendern inklusive VO, in `live/saved.jsonl` eintragen (rec, clip, Score, Kurzbeschreibung) und im Output liegen lassen, damit der User später freigeben kann. Der Janitor schützt die Rohdaten ab Score 50 sowieso 24 h.
 - YouTube: Zeigt der Upload-Dialog nach „Publish“ den Button „Publish anyway“ / „Trotzdem veröffentlichen“ (Prüfungen laufen noch), diesen klicken. So vom User gewünscht, `ytu.py` macht das automatisch. Danach im Studio (Tab Shorts) prüfen, dass der Short auf „Öffentlich“ steht.
 - Wartejobs nie mit `while pgrep -f "post_all.sh"` bauen: Das Muster trifft auch die Kommandozeile anderer Wartejobs, dann warten die sich gegenseitig ewig (Deadlock). Stattdessen auf eine PID oder Lockdatei warten. Laufende Skripte nicht bearbeiten (siehe „Betriebs-Fallen“).
 - Pacing: Anfang und Ende straff schneiden. Sofort mit dem Aufbau starten und nach Pointe plus Reaktion Schluss machen, ohne Nachlauf (z. B. „läuft danach noch zum Objekt“). In der Mitte NICHT zerschneiden: Aufbau und eigentliche Aktion bleiben am Stück. Jump-Cuts nur bei reinem Gerede ohne Bildhandlung. Grund: Jump-Cuts an Sprechpausen schneiden stille Action raus, also oft genau die Pointe. Nach jedem Neuschnitt den Clip per MEDIA zeigen.

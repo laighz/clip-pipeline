@@ -1,3 +1,4 @@
+import re
 from h import *
 import sys
 vod,clip=sys.argv[1],sys.argv[2]
@@ -28,7 +29,7 @@ ed=pg.locator('div[role=dialog] div[contenteditable="true"]').first
 ed.click()
 txt=open(f'/Users/moritz/clips/out/{vod}/{clip}.txt').read().split('--- INSTAGRAM ---')[1].split('---')[0].strip()
 pg.keyboard.type(txt); pg.wait_for_timeout(1500)
-dlg.get_by_text('livespiked').first.click(); pg.wait_for_timeout(1000)
+dlg.get_by_text(re.compile(r'^live\.?spiked(26)?$')).first.click(); pg.wait_for_timeout(1000)
 print('caption:',ed.inner_text())
 dlg.get_by_role('button',name='Share').first.click()
 t=''
