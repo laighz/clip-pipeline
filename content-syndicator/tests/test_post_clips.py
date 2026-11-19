@@ -3,16 +3,22 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 import tempfile
 import time
 import unittest
+from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock, patch
 
+from postclips.browser import publish
 from postclips.library import (
     PLATFORM_ORDER,
     discover_clips,
     load_sidecar,
     plan_posts,
+    prepare_upload_music,
     record_db,
     run_posts,
     save_sidecar,
@@ -107,6 +113,16 @@ class DiscoverTests(unittest.TestCase):
         self.assertEqual(clips[1].duration_s, 75)
         self.assertIsNone(clips[0].duration_s)
 
+    def test_marked_music_master_cannot_upload_without_music_sidecar(self) -> None:
+        (self.out / "clip01.json").write_text(
+            json.dumps({"duration_s": 12, "trend_music_upload": True}), encoding="utf-8")
+        clips = discover_clips(self.home, "vod1", {"clip01"})
+        with self.assertRaisesRegex(ValueError, "clip01.music.json fehlt"):
+            prepare_upload_music(clips, ["youtube"])
+        poster = Mock()
+        self.assertEqual(run_posts(clips, ["youtube"], poster).failed, 1)
+        poster.assert_not_called()
+
     def test_snapchat_skipped_when_longer_than_60s(self) -> None:
         clips = discover_clips(self.home, "vod1")
         jobs = plan_posts(clips, PLATFORM_ORDER)
@@ -136,6 +152,59 @@ class RunTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
+
+    def test_trend_track_is_mixed_once_for_pending_browser_uploads(self) -> None:
+        master = self.out / "clip01.mp4"
+        master.with_suffix(".music.json").write_text("{}", encoding="utf-8")
+        save_sidecar(self.out / "clip01.post.json", {"posts": {"youtube": {"status": "posted"}}})
+        settings = {"master_sha256": "0123456789"}
+        track = SimpleNamespace(title="Song", artist="Artist", source_platform="tiktok",
+                                checked_on=date(2026, 11, 19))
+        mixed = self.home / "state" / "upload-music" / "mixed.mp4"
+        playwright = MagicMock()
+        runtime = playwright.sync_playwright.return_value.__enter__.return_value
+        context = Mock(pages=[Mock()])
+        runtime.chromium.launch_persistent_context.return_value = context
+        with (patch.dict(sys.modules, {"playwright.sync_api": playwright}),
+              patch("postclips.browser.find_browser", return_value=None),
+              patch("postclips.library.music.read_settings", return_value=settings) as read,
+              patch("postclips.library.music.select", return_value=track) as select,
+              patch("postclips.library.music.mix_for_upload", return_value=mixed) as mix,
+              patch("postclips.browser.Session.post") as post):
+            results = publish(self.home, "vod1", ["youtube", "tiktok", "instagram"], None, True, 0)
+        read.assert_called_once_with(master)
+        select.assert_called_once_with(settings, ["tiktok", "instagram"])
+        mix.assert_called_once_with(master, track, mixed.parent, master_sha256=settings["master_sha256"])
+        sent = [(call.args[0].clip_id, call.args[0].platform, call.args[0].video) for call in post.call_args_list]
+        self.assertEqual(sent[:2], [("clip01", "tiktok", mixed), ("clip01", "instagram", mixed)])
+        self.assertEqual([entry[2] for entry in sent[2:]], [self.out / "clip02.mp4"] * 3)
+        self.assertEqual((results.posted, results.skipped), (5, 1))
+        self.assertEqual(results.jobs[1]["video"], str(master))
+        self.assertEqual(results.jobs[1]["trend_music"]["title"], "Song")
+        self.assertEqual(master.read_bytes(), b"fake")
+
+    def test_missing_cleared_track_stops_before_browser(self) -> None:
+        master = self.out / "clip01.mp4"
+        master.with_suffix(".music.json").write_text("{}", encoding="utf-8")
+        playwright = Mock()
+        with (patch.dict(sys.modules, {"playwright.sync_api": playwright}),
+              patch("postclips.library.music.read_settings", return_value={}),
+              patch("postclips.library.music.select", side_effect=ValueError("Kein aktueller Track")),
+              patch("postclips.library.music.mix_for_upload") as mix,
+              self.assertRaisesRegex(ValueError, "Kein aktueller Track")):
+            publish(self.home, "vod1", ["youtube"], None, True, 0)
+        playwright.sync_playwright.assert_not_called()
+        mix.assert_not_called()
+        self.assertFalse((self.out / "clip01.post.json").exists())
+
+    def test_finished_clip_does_not_need_trend_selection(self) -> None:
+        master = self.out / "clip01.mp4"
+        master.with_suffix(".music.json").write_text("{}", encoding="utf-8")
+        save_sidecar(self.out / "clip01.post.json", {"posts": {"youtube": {"status": "posted"}}})
+        clips = discover_clips(self.home, "vod1")
+        with patch("postclips.library.music.read_settings") as read:
+            self.assertEqual(prepare_upload_music(clips, ["youtube"]), {})
+        read.assert_not_called()
 
     def test_order_skip_and_no_wait(self) -> None:
         clips = discover_clips(self.home, "vod1")
@@ -213,6 +282,25 @@ class RunTests(unittest.TestCase):
         self.assertFalse((self.out / "clip01.post.json").exists())
         youtube = [row for row in payload["clips"] if row["clip_id"] == "clip01" and row["platform"] == "youtube"]
         self.assertEqual(youtube[0]["text"], "Er kann es nicht fassen #Shorts")
+
+        master = self.out / "clip01.mp4"
+        master.with_suffix(".music.json").write_text("{}", encoding="utf-8")
+        track = SimpleNamespace(title="Song", artist="Artist", source_platform="youtube",
+                                checked_on=date(2026, 11, 19))
+        buffer = StringIO()
+        with (patch("postclips.library.music.read_settings", return_value={}),
+              patch("postclips.library.music.select", return_value=track),
+              patch("postclips.library.music.mix_for_upload") as mix,
+              patch.object(module, "publish") as live,
+              redirect_stdout(buffer)):
+            self.assertEqual(module.main(["--vod-id", "vod1", "--home", str(self.home),
+                                          "--platforms", "youtube"]), 0)
+        jobs = json_mod.loads(buffer.getvalue())["clips"]
+        self.assertEqual(jobs[0]["trend_music"]["title"], "Song")
+        self.assertNotIn("trend_music", jobs[1])
+        self.assertFalse((self.out / "clip01.post.json").exists())
+        mix.assert_not_called()
+        live.assert_not_called()
 
     def test_sidecar_roundtrip(self) -> None:
         path = self.out / "clip01.post.json"
