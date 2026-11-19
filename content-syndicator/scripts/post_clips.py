@@ -25,6 +25,7 @@ from postclips.library import (  # noqa: E402
     LoginRequired,
     discover_clips,
     plan_posts,
+    prepare_upload_music,
 )
 
 
@@ -57,16 +58,24 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.publish:
         jobs = plan_posts(clips, platforms)
+        try:
+            upload_music = prepare_upload_music(clips, platforms)
+        except (OSError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
         emit({
             "vod_id": args.vod_id,
             "dry_run": True,
             "home": str(home),
-            "clips": [_public_job(job) for job in jobs],
+            "clips": [_public_job(job, upload_music.get(job.video)) for job in jobs],
         })
         return 0
 
     try:
         result = publish(home, args.vod_id, platforms, only, args.headless, args.login_timeout)
+    except (OSError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     except LoginRequired as exc:
         print(str(exc), file=sys.stderr)
         return 5
@@ -88,7 +97,7 @@ def emit(payload: dict) -> None:
     print(json.dumps(payload, ensure_ascii=False))
 
 
-def _public_job(job) -> dict:
+def _public_job(job, prepared=None) -> dict:
     text = {
         "youtube": job.texts["youtube_title"],
         "tiktok": job.texts["tiktok"],
@@ -96,7 +105,7 @@ def _public_job(job) -> dict:
         "snapchat": job.texts["snapchat"],
         "x": job.texts["x"],
     }[job.platform]
-    return {
+    result = {
         "clip_id": job.clip_id,
         "platform": job.platform,
         "action": job.action,
@@ -104,6 +113,9 @@ def _public_job(job) -> dict:
         "text": text,
         "video": str(job.video),
     }
+    if prepared and job.platform in prepared.platforms:
+        result["trend_music"] = prepared.summary()
+    return result
 
 
 if __name__ == "__main__":

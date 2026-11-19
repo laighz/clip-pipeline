@@ -40,10 +40,25 @@ uv run scripts/post_clips.py --vod-id 2929727033 --publish --platforms youtube,t
 
 Snapchat Spotlight nimmt nur Videos bis 60 Sekunden. Länger steht das in der JSON der Pipeline (`duration_s`), dann bleibt Snapchat aus.
 
+## Trendmusik für Cooking-Clips
+
+Wenn neben dem Master eine `clipXX.music.json` liegt, prüft der Syndicator
+beim Start den darin angegebenen lokalen Katalog auf einen aktuellen Track
+für die ausstehenden Ziele. Der Aufruf ohne `--publish` zeigt die Auswahl.
+Beim Upload senkt FFmpeg die Musik automatisch ab, sobald das Voiceover
+oder die Küchengeräusche im Vordergrund stehen. Die Videospur wird in die
+Upload-Datei kopiert. Der Song wird als Teil der Audiospur hochgeladen.
+
+Cooking Channel erzeugt die Zusatzdatei beim Handoff. Sie enthält auch
+die Prüfsumme des freigegebenen Masters. Fehlt ein passender Song oder
+stimmt die Prüfsumme nicht, gibt es vor dem Browserstart einen Fehler.
+Für diesen Ablauf müssen `ffmpeg` und `ffprobe` verfügbar sein.
+
 Liegt `clips.db` schon im Datenordner, kommt eine Tabelle `posts` dazu. Die Datei wird nicht neu angelegt.
 
 ## Was schiefgehen kann
 
 Die Upload-Seiten ändern ihre Buttons. Dann bricht diese eine Plattform ab, der Text in `clipXX.post.json` sagt, welcher Klick gefehlt hat. Der Browser wird nicht versteckt, und Sperren werden nicht umgangen.
 
-Voice-over mischt das Kommando nicht ins Video. Wenn du es drauf haben willst, ersetzt du die MP4, löschst den Eintrag in `clipXX.post.json` und startest `--publish` noch einmal.
+Das Voiceover muss schon im Master liegen. Bei Clips ohne Musikdatei
+für die Übergabe lädt der Syndicator die MP4 direkt hoch.

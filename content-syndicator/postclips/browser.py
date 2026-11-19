@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from postclips.library import PLATFORM_ORDER, LoginRequired, discover_clips, run_posts
+from postclips.library import PLATFORM_ORDER, LoginRequired, discover_clips, prepare_upload_music, run_posts
 
 LOGIN_URL = {
     "youtube": ("accounts.google.com",),
@@ -280,6 +280,7 @@ class Session:
 def publish(home: Path, vod_id: str, platforms: list[str], only: set[str] | None,
             headless: bool, login_timeout: int):
     clips = discover_clips(home, vod_id, only)
+    upload_music = prepare_upload_music(clips, platforms, cache_dir=home / "state" / "upload-music")
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
@@ -306,7 +307,7 @@ def publish(home: Path, vod_id: str, platforms: list[str], only: set[str] | None
             raise
         page = context.pages[0] if context.pages else context.new_page()
         try:
-            return run_posts(clips, platforms, Session(page, login_timeout).post)
+            return run_posts(clips, platforms, Session(page, login_timeout).post, upload_music=upload_music)
         finally:
             context.close()
 
