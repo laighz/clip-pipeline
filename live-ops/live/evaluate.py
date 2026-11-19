@@ -53,7 +53,7 @@ subj = 2 * (a.standalone + a.payoff + a.relevance)
 score = round(obj + subj, 1)
 
 streamer = a.rec.rsplit('-', 2)[0]
-if a.threshold is None: a.threshold = 75
+if a.threshold is None: a.threshold = 80  # >=80 posten, 70-79 sichern (User 19.11.)
 now = time.time()
 hist = [json.loads(l) for l in open(LOG)] if os.path.exists(LOG) else []
 posted = [h for h in hist if h.get('decision') == 'post']
