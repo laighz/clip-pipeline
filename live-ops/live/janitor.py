@@ -100,7 +100,7 @@ if '--restore' in sys.argv:
     restore(sys.argv[sys.argv.index('--restore') + 1]); sys.exit()
 
 fg = free_gb(); burn, alive = burn_gbh(); free_h = fg / burn
-ttl = clamp((free_h - RESERVE_H) / 3, 0.25, 4) * 3600
+ttl = clamp((free_h - RESERVE_H) / 3, 0.85, 4) * 3600   # min 50 min: batch runs every 25-35 min
 grace = clamp((free_h - RESERVE_H) / 6, 1 / 6, 2) * 3600
 ev, pin = evals(), pins()
 log(f'free {fg:.1f} GB, burn {burn:.1f} GB/h -> {free_h:.1f} h left; ttl {ttl/60:.0f} min, grace {grace/60:.0f} min')
@@ -163,6 +163,9 @@ if watch:
             if not DRY: shutil.rmtree(d, ignore_errors=True)
 
 trashable, protected = [], []
+BATCH_LOCK = f'{LIVE}/batch.lock'
+batch_running = os.path.exists(BATCH_LOCK) and now - os.path.getmtime(BATCH_LOCK) < 1800
+if batch_running: log('batch running -> no trash/purge this run')
 for rec in sorted(os.listdir(RAW)):
     d = f'{RAW}/{rec}'
     if not os.path.isdir(d): continue
@@ -192,7 +195,7 @@ for rec in sorted(os.listdir(RAW)):
             st = ev.get((rec, c['id']))
             if st == 'posted': continue
             if isinstance(st, (int, float)) and st >= KEEP_SCORE and st > best: best, reason = st, f"{c['id']} eval {st:.0f}"
-            if st is None and c['score'] >= 5 and age < 7200 and 40 > best: best, reason = 40, f"{c['id']} pending raw {c['score']:.1f}"
+            if st is None and c['score'] >= 3 and age < 10800 and 40 > best: best, reason = 40, f"{c['id']} pending raw {c['score']:.1f}"
         for t in pin.get(rec, []):
             if s - 60 <= t <= e + 60: best, reason = 999, f'pin {t:.0f}s'
         item = (age, p, rec, best, reason)
@@ -213,6 +216,7 @@ def to_trash(item, why):
 
 
 for it in sorted(trashable, reverse=True):
+    if batch_running: break
     to_trash(it, 'analysed, past ttl')
 
 
@@ -226,8 +230,8 @@ def purge(force_until_h=None, why='grace over'):
             if not DRY: os.remove(f)
 
 
-purge(force_until_h=RESERVE_H)
-if free_gb() / burn < CRIT_H:
+if not batch_running: purge(force_until_h=RESERVE_H)
+if free_gb() / burn < CRIT_H and not (batch_running and free_gb() / burn > 0.5):
     for it in sorted(protected, key=lambda x: x[3]):
         if free_gb() / burn >= CRIT_H: break
         if it[3] >= 999: continue                          # never auto-delete pins

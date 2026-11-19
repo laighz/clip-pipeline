@@ -4,6 +4,7 @@
 S="/Users/moritz/Documents/#code/clip-pipeline/clip-forge/skills/clipping-streams"
 D=~/.hermes/cache/scratch/live
 OUT=$D/batch_summary.txt; : > $OUT
+touch $D/batch.lock; trap "rm -f $D/batch.lock" EXIT
 RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in trymacs ohnepixel xrohat montanablack88 darkviperau zarbex kaicenat; do ls -t ~/clips/raw/live | grep "^$CH-" | head -3; done)
 for R in $RECS; do
   CH=${R%-*-*}
