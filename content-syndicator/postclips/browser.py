@@ -6,12 +6,14 @@ bleibt das Fenster offen, bis du dich selbst einloggst.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
-from postclips.library import PLATFORM_ORDER, LoginRequired, discover_clips, prepare_upload_music, run_posts
+from postclips.library import PLATFORM_ORDER, LoginRequired, discover_clips, needs_browser, prepare_upload_music, run_posts
 
 LOGIN_URL = {
     "youtube": ("accounts.google.com",),
@@ -104,7 +106,7 @@ class Session:
         self.page.locator("#done-button").click(timeout=180_000)
         self.click_if_visible('ytcp-button#dialog-button, #confirm-button', 4_000)
 
-    def tiktok(self, job) -> None:
+    def _tiktok_upload(self, job):
         self.open("tiktok")
         root = self.root()
         self.give_video(job.video, root)
@@ -115,6 +117,22 @@ class Session:
         self.page.keyboard.press("Backspace")
         self.page.keyboard.insert_text(job.texts["tiktok"])
         self.page.keyboard.press("Escape")
+        return root
+
+    def open_tiktok_sound_editor(self, job) -> bool:
+        root = self._tiktok_upload(job)
+        name = re.compile(r"^(Edit video|Video bearbeiten)$", re.IGNORECASE)
+        editor = root.get_by_role("button", name=name).first
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        try:
+            editor.click(timeout=15_000)
+        except PlaywrightTimeout:
+            return False
+        return True
+
+    def tiktok(self, job) -> None:
+        root = self._tiktok_upload(job)
         button = root.locator('button[data-e2e="post_video_button"]').first
         button.wait_for(state="visible", timeout=30_000)
         root.wait_for_function(
@@ -281,6 +299,32 @@ def publish(home: Path, vod_id: str, platforms: list[str], only: set[str] | None
             headless: bool, login_timeout: int):
     clips = discover_clips(home, vod_id, only)
     upload_music = prepare_upload_music(clips, platforms, cache_dir=home / "state" / "upload-music")
+    if not needs_browser(clips, platforms, upload_music):
+        return run_posts(clips, platforms, None, upload_music=upload_music)
+    with _session(home, headless, login_timeout) as session:
+        return run_posts(clips, platforms, session.post, upload_music=upload_music)
+
+
+def guide_tiktok_native(home: Path, job, instructions: list[str], login_timeout: int) -> bool:
+    """Prepare the approved upload for manual editing. The operator owns the final click."""
+    with _session(home, False, login_timeout) as session:
+        opened = session.open_tiktok_sound_editor(job)
+        if not opened:
+            print("Der Button „Video bearbeiten“ war nicht sichtbar. Prüfe die Seite oder nutze die TikTok-App.",
+                  file=sys.stderr)
+        for step in instructions:
+            print(step, file=sys.stderr)
+        try:
+            print("Enter schließt das Browserfenster. Speichere deine Änderungen vorher in TikTok.",
+                  file=sys.stderr)
+            input()
+        except (EOFError, KeyboardInterrupt):
+            pass
+        return opened
+
+
+@contextmanager
+def _session(home: Path, headless: bool, login_timeout: int):
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
@@ -307,7 +351,7 @@ def publish(home: Path, vod_id: str, platforms: list[str], only: set[str] | None
             raise
         page = context.pages[0] if context.pages else context.new_page()
         try:
-            return run_posts(clips, platforms, Session(page, login_timeout).post, upload_music=upload_music)
+            yield Session(page, login_timeout)
         finally:
             context.close()
 

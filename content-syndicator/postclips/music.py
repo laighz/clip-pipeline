@@ -1,4 +1,4 @@
-"""Select a recorded platform suggestion and mix it into an upload copy."""
+"""Validate native editor handoffs and optionally mix an explicitly embedded track."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,6 +23,7 @@ _SOURCE_HOSTS = {
     "facebook": ("facebook.com", "fb.watch"),
 }
 _SETTINGS_KEYS = {"schema_version", "catalog", "region", "timezone", "max_age_days", "volume", "master_sha256"}
+_NATIVE_KEYS = {"schema_version", "mode", "master_sha256", "music_volume", "original_volume"}
 _AUDIO_FORMATS = "aac,aiff,flac,mp3,mov,ogg,wav"
 _MAX_CATALOG_BYTES = 128 * 1024
 _MAX_TRACKS = 128
@@ -77,8 +78,19 @@ def _volume(value) -> float:
 
 
 def _validate_settings(data: dict) -> None:
-    if data.keys() != _SETTINGS_KEYS or type(data["schema_version"]) is not int or data["schema_version"] != 1:
-        raise ValueError("versionierter Trendmusik-Sidecar (schema_version 1) erwartet")
+    version = data.get("schema_version")
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("versionierter Trendmusik-Sidecar (schema_version 1 oder 2) erwartet")
+    if not isinstance(data.get("master_sha256"), str) or not _SHA256.fullmatch(data["master_sha256"]):
+        raise ValueError("master_sha256 des freigegebenen Videos fehlt oder ist ungültig")
+    if version == 2:
+        if data.keys() != _NATIVE_KEYS or data["mode"] != "native":
+            raise ValueError("Sidecar der Version 2 erwartet mode native und beide Lautstärken")
+        _volume(data["music_volume"])
+        _volume(data["original_volume"])
+        return
+    if data.keys() != _SETTINGS_KEYS:
+        raise ValueError("Musik-Katalog und Nutzungsdaten der Version 1 erwartet")
     path = _text(data["catalog"], "catalog", 4096)
     if path != data["catalog"] or "://" in path or not Path(path).is_absolute():
         raise ValueError("catalog muss ein absoluter lokaler Dateipfad sein")
@@ -90,8 +102,6 @@ def _validate_settings(data: dict) -> None:
     if type(data["max_age_days"]) is not int or not 0 <= data["max_age_days"] <= 30:
         raise ValueError("max_age_days muss eine Ganzzahl zwischen 0 und 30 sein")
     _volume(data["volume"])
-    if not isinstance(data["master_sha256"], str) or not _SHA256.fullmatch(data["master_sha256"]):
-        raise ValueError("master_sha256 des freigegebenen Videos fehlt oder ist ungültig")
 
 
 def read_settings(video: Path) -> dict | None:
@@ -105,6 +115,13 @@ def read_settings(video: Path) -> dict | None:
     except (OSError, ValueError, ZoneInfoNotFoundError) as error:
         raise ValueError(f"Trendmusik-Sidecar ungültig ({sidecar.name}): {error}") from error
     return data
+
+
+def verify_master(video: Path, master_sha256: str) -> None:
+    if not isinstance(master_sha256, str) or not _SHA256.fullmatch(master_sha256):
+        raise ValueError("SHA-256 des freigegebenen Masters fehlt oder ist ungültig.")
+    if _digest(video) != master_sha256:
+        raise ValueError("Der freigegebene Master wurde geändert. Reel neu freigeben und übergeben.")
 
 
 def _official_url(platform: str, url: str) -> bool:
@@ -258,10 +275,7 @@ def mix_for_upload(video: Path, track: Track, cache_dir: Path, *, master_sha256:
     """Mix only audio. Keep the approved master and its encoded video stream."""
     video = Path(video).resolve()
     volume = _volume(track.volume)
-    if not isinstance(master_sha256, str) or not _SHA256.fullmatch(master_sha256):
-        raise ValueError("SHA-256 des freigegebenen Masters fehlt oder ist ungültig.")
-    if _digest(video) != master_sha256:
-        raise ValueError("Der freigegebene Master wurde geändert. Reel neu freigeben und übergeben.")
+    verify_master(video, master_sha256)
     track_digest = _digest(track.file)
     key = hashlib.sha256(f"{_MIX_VERSION}:{master_sha256}:{track_digest}:{volume}".encode()).hexdigest()
     cache_dir = Path(cache_dir).resolve()

@@ -40,19 +40,30 @@ uv run scripts/post_clips.py --vod-id 2929727033 --publish --platforms youtube,t
 
 Snapchat Spotlight nimmt nur Videos bis 60 Sekunden. Länger steht das in der JSON der Pipeline (`duration_s`), dann bleibt Snapchat aus.
 
-## Trendmusik für Cooking-Clips
+## Native Musik für Cooking-Clips
 
-Wenn neben dem Master eine `clipXX.music.json` liegt, prüft der Syndicator
-beim Start den darin angegebenen lokalen Katalog auf einen aktuellen Track
-für die ausstehenden Ziele. Der Aufruf ohne `--publish` zeigt die Auswahl.
-Beim Upload senkt FFmpeg die Musik automatisch ab, sobald das Voiceover
-oder die Küchengeräusche im Vordergrund stehen. Die Videospur wird in die
-Upload-Datei kopiert. Der Song wird als Teil der Audiospur hochgeladen.
+Cooking Channel markiert seine Übergabe als nativen Musikjob. Der Syndicator
+prüft den Master gegen die Prüfsumme im Musik-Sidecar. Anschließend liefert
+er pro offenem Ziel Masterpfad, Caption und die Schritte für den passenden
+Editor, einschließlich der empfohlenen Startpegel. Der Status
+`manual_required` lässt den Upload offen. In einem gemischten Stapel laufen
+gewöhnliche Uploads weiterhin wie gewohnt.
 
-Cooking Channel erzeugt die Zusatzdatei beim Handoff. Sie enthält auch
-die Prüfsumme des freigegebenen Masters. Fehlt ein passender Song oder
-stimmt die Prüfsumme nicht, gibt es vor dem Browserstart einen Fehler.
-Für diesen Ablauf müssen `ffmpeg` und `ffprobe` verfügbar sein.
+Für einen einzelnen Clip lässt sich TikTok Studio direkt vorbereiten.
+
+```bash
+uv run scripts/post_clips.py --vod-id reel --clip clip01 --platforms tiktok --open-native-editor
+```
+
+Im sichtbaren Editor einen empfohlenen Sound auswählen und als Startwert
+Originalton auf 100 % und Musik auf 10 % lassen beziehungsweise einstellen.
+Den tatsächlichen Pegel in TikTok vorhören und dort speichern und
+veröffentlichen. Für Instagram, YouTube Shorts und Snapchat führt der Plan
+zum jeweiligen App-Editor.
+
+Ältere Cooking-Übergaben durch einen neuen Handoff aktualisieren. Ein
+lokaler FFmpeg-Musikmix ist für explizit als `embedded` markierte Übergaben
+weiter verfügbar.
 
 Liegt `clips.db` schon im Datenordner, kommt eine Tabelle `posts` dazu. Die Datei wird nicht neu angelegt.
 
