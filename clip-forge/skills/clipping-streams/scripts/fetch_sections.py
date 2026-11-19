@@ -18,6 +18,7 @@ Exit: 0 ok, 1 Download-Fehler, 2 Eingabe fehlt, 4 Programm fehlt.
 from __future__ import annotations
 
 import argparse
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -210,7 +211,18 @@ def main() -> None:
             else:
                 target.mkdir(parents=True, exist_ok=True)
                 log.info("lade %s (%s-%s) ...", sec["id"], _lib.fmt_time(sec["start"]), _lib.fmt_time(sec["end"]))
-                proc = _lib.run(cmd, timeout=3600)
+                proc = _lib.run(cmd, timeout=900)
+                if (proc.returncode != 0 or not out.is_file()) and not url.startswith("file:"):
+                    # yt-dlp hängt bei noch laufenden VODs: direkter HLS-Download als Ersatz
+                    try:
+                        import _hls
+                        log.warning("yt-dlp fehlgeschlagen/Timeout, nutze HLS-Direktdownload für %s", sec["id"])
+                        for junk in out.parent.glob(out.name + "*"):
+                            junk.unlink(missing_ok=True)
+                        _hls.download_section(ytdlp, ffmpeg, url, float(sec["start"]), float(sec["end"]), args.height, out)
+                        proc = subprocess.CompletedProcess(cmd, 0, "", "")
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("HLS-Ersatz fehlgeschlagen: %s", e)
                 if proc.returncode != 0 or not out.is_file():
                     _lib.fail(f"Download von {sec['id']} fehlgeschlagen: {proc.stderr.strip()[-600:]}",
                               _lib.EXIT_ERROR, section=sec["id"])

@@ -80,10 +80,18 @@ def download_audio(url: str, vod_id: str, ytdlp: str, ffmpeg: str) -> Path:
         _lib.log.info("Tonspur schon da: %s", existing[0])
         return existing[0]
     target.mkdir(parents=True, exist_ok=True)
+    # Zuerst direkter, paralleler HLS-Download (klappt auch bei VODs, die noch live laufen;
+    # yt-dlp hängt dort oft ohne Fehler). Bei Fehler: wie bisher yt-dlp.
+    try:
+        import _hls
+        _lib.log.info("lade Tonspur per HLS (parallel) ...")
+        return _hls.download_audio(ytdlp, ffmpeg, url, target / "audio.mp4")
+    except Exception as e:  # noqa: BLE001
+        _lib.log.warning("HLS-Download fehlgeschlagen (%s), versuche yt-dlp", e)
     cmd = [ytdlp, "-f", "ba/worst", "--no-playlist", "--no-progress", "--ffmpeg-location", ffmpeg,
            "-o", str(target / "audio.%(ext)s"), url]
     _lib.log.info("lade nur die Tonspur ...")
-    proc = _lib.run(cmd, timeout=6 * 3600)
+    proc = _lib.run(cmd, timeout=1800)
     if proc.returncode != 0:
         _lib.fail(f"Tonspur-Download fehlgeschlagen: {proc.stderr.strip()[-600:]}", _lib.EXIT_ERROR)
     files = [p for p in target.glob("audio.*") if p.suffix not in (".part", ".ytdl")]

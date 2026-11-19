@@ -52,6 +52,7 @@ Liegen Kandidaten, Abschnitte und Transkripte schon im Arbeitsordner, direkt bei
 8. Vor systemweiten Installationen den User fragen.
 
 ## Gotchas
+- Noch laufende VODs (Stream läuft/lief gerade): `yt-dlp` hängt dort oft ohne Fehler. `fetch_signals` lädt die Tonspur deshalb zuerst per HLS-Direktdownload (`scripts/_hls.py`, Segmente parallel, ~2 min für 3 h), `fetch_sections` nutzt ihn als Ersatz, wenn yt-dlp scheitert oder nach 15 min nicht fertig ist. Playlist-URL kommt über `yt-dlp -g`, es werden nur Segmente im Zeitfenster geladen.
 - Jedes Skript: eine JSON-Zeile auf stdout, Logs nach stderr. Exit 0 ok, 1 Fehler,
   2 Eingabe ungültig, 3 Kanal offline, 4 Programm fehlt, 5 Prüfung fehlgeschlagen.
 - IDs kommen aus der Zeit: Kandidat `c231` = Moment bei 231 s, Abschnitt
