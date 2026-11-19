@@ -28,6 +28,7 @@ class Clip:
     duration_s: float | None
     db_path: Path | None = None
     requires_trend_music: bool = False
+    trend_music_mode: str | None = None
 
 
 @dataclass
@@ -48,6 +49,7 @@ class RunResult:
     failed: int = 0
     posted: int = 0
     skipped: int = 0
+    manual_required: int = 0
     jobs: list[dict] = field(default_factory=list)
 
 
@@ -64,6 +66,74 @@ class UploadMusic:
             "source_platform": self.track.source_platform,
             "checked_on": self.track.checked_on.isoformat(),
         }
+
+
+@dataclass(frozen=True)
+class NativeMusic:
+    platforms: frozenset[str]
+    original_volume: float
+    music_volume: float
+
+    def handoff(self, job: Job) -> dict:
+        caption = job.texts["youtube_description" if job.platform == "youtube" else job.platform]
+        editor = _NATIVE_EDITORS.get(job.platform)
+        if editor is None:
+            return {
+                "title": job.texts["youtube_title"], "caption": caption,
+                "native_music": {"selection": "unsupported",
+                                 "instructions": ["Für dieses Ziel fehlt ein geprüfter Editor für Plattform-Sounds."]},
+            }
+        name, url, steps = editor
+        return {
+            "title": job.texts["youtube_title"], "caption": caption,
+            "native_music": {
+                "editor": name,
+                "help_url": url,
+                "selection": "trending_or_recommended",
+                "original_volume": self.original_volume,
+                "music_volume": self.music_volume,
+                "instructions": [
+                    *steps,
+                    "Wähle einen für dein Konto verfügbaren Titel aus den trendenden oder empfohlenen Sounds.",
+                    (f"Starte mit Originalton bei {self.original_volume:.0%} und Musik bei {self.music_volume:.0%}, "
+                     "wenn der Editor getrennte Regler anbietet. Die Stimme soll in der Vorschau klar vorne liegen."),
+                    "Prüfe den Mix und veröffentliche im selben Editor.",
+                ],
+            },
+        }
+
+
+_NATIVE_EDITORS = {
+    "youtube": (
+        "YouTube-App · Shorts-Editor",
+        "https://support.google.com/youtube/answer/16215842",
+        ["In der YouTube-App das Video als Short importieren und im Editor „Sound hinzufügen“ öffnen."],
+    ),
+    "tiktok": (
+        "TikTok Studio · Edit video → Sounds",
+        "https://support.tiktok.com/en/using-tiktok/creating-videos/sounds",
+        ["Nach dem Upload in TikTok Studio „Edit video“ und „Sounds“ öffnen. "
+         "Falls der Webeditor die Audioauswahl nicht anbietet, das Video in der TikTok-App importieren."],
+    ),
+    "instagram": (
+        "Instagram-App · Reel-Editor",
+        "https://about.fb.com/news/2023/04/instagram-reels-trending-audio-and-gifts-updates/",
+        ["Das Video in der Instagram-App als Reel importieren und die Audioauswahl des Reels öffnen."],
+    ),
+    "snapchat": (
+        "Snapchat-App · Sounds",
+        "https://help.snapchat.com/hc/en-us/articles/7012370054932-How-do-I-add-music-to-my-Snap",
+        ["Das Video in der Snapchat-App für Spotlight bearbeiten und im Sounds-Menü „Trending“ oder „For You“ öffnen."],
+    ),
+}
+
+PreparedMusic = UploadMusic | NativeMusic
+
+
+def _has_music_contract(clip: Clip) -> bool:
+    sidecar = clip.video.with_suffix(".music.json")
+    return (clip.requires_trend_music or bool(clip.trend_music_mode)
+            or sidecar.exists() or sidecar.is_symlink())
 
 
 def discover_clips(home: Path, vod_id: str, only: set[str] | None = None) -> list[Clip]:
@@ -90,6 +160,7 @@ def discover_clips(home: Path, vod_id: str, only: set[str] | None = None) -> lis
             duration_s=_duration(metadata),
             db_path=db,
             requires_trend_music=metadata.get("trend_music_upload") is True,
+            trend_music_mode=metadata.get("trend_music_mode"),
         ))
     return clips
 
@@ -117,21 +188,27 @@ def plan_posts(clips: list[Clip], platforms: list[str]) -> list[Job]:
 
 
 def prepare_upload_music(clips: list[Clip], platforms: list[str], *,
-                         cache_dir: Path | None = None) -> dict[Path, UploadMusic]:
-    """Validate a track against unposted targets and mix once for each clip on publish."""
+                         cache_dir: Path | None = None) -> dict[Path, PreparedMusic]:
+    """Prepare native editor jobs or an explicitly requested embedded upload mix."""
     prepared = {}
     for clip in clips:
-        sidecar = clip.video.with_suffix(".music.json")
-        if not clip.requires_trend_music and not sidecar.exists() and not sidecar.is_symlink():
+        if not _has_music_contract(clip):
             continue
-        posts = load_sidecar(clip.sidecar_path).get("posts", {})
-        pending = [job.platform for job in plan_posts([clip], platforms)
-                   if job.action == "post" and not _finished(posts, job.platform)]
+        pending = _pending_platforms(clip, platforms)
         if not pending:
             continue
         settings = music.read_settings(clip.video)
+        sidecar = clip.video.with_suffix(".music.json")
         if settings is None:
             raise ValueError(f"{sidecar.name} fehlt für den Trendmusik-Upload von {clip.video.name}.")
+        if settings["schema_version"] == 2:
+            if clip.trend_music_mode not in (None, "native"):
+                raise ValueError(f"{sidecar.name} passt nicht zum Musikmodus. Handoff erneut ausführen.")
+            music.verify_master(clip.video, settings["master_sha256"])
+            prepared[clip.video] = NativeMusic(frozenset(pending), settings["original_volume"], settings["music_volume"])
+            continue
+        if clip.trend_music_mode != "embedded":
+            raise ValueError(f"{sidecar.name} stammt aus einem alten Upload-Mix. Handoff erneut ausführen.")
         track = music.select(settings, pending)
         mixed = None
         if cache_dir is not None:
@@ -145,8 +222,19 @@ def _finished(posts: dict, platform: str) -> bool:
     return (posts.get(platform) or {}).get("status") in {"posted", "skipped"}
 
 
+def _pending_platforms(clip: Clip, platforms: list[str]) -> list[str]:
+    posts = load_sidecar(clip.sidecar_path).get("posts", {})
+    return [job.platform for job in plan_posts([clip], platforms)
+            if job.action == "post" and not _finished(posts, job.platform)]
+
+
+def needs_browser(clips: list[Clip], platforms: list[str], prepared: dict[Path, PreparedMusic]) -> bool:
+    return any(not isinstance(prepared.get(clip.video), NativeMusic)
+               and _pending_platforms(clip, platforms) for clip in clips)
+
+
 def run_posts(clips: list[Clip], platforms: list[str], poster, *,
-              upload_music: dict[Path, UploadMusic] | None = None) -> RunResult:
+              upload_music: dict[Path, PreparedMusic] | None = None) -> RunResult:
     """Poster wird nur für noch offene Plattformen aufgerufen. Keine Pause dazwischen."""
     result = RunResult()
     for clip in clips:
@@ -166,10 +254,19 @@ def run_posts(clips: list[Clip], platforms: list[str], poster, *,
                 result.jobs.append(_row(job, "skipped", job.reason))
                 _persist(job, "skipped", job.reason, side)
                 continue
+            prepared = (upload_music or {}).get(job.video)
+            if isinstance(prepared, NativeMusic) and job.platform in prepared.platforms:
+                result.manual_required += 1
+                result.jobs.append({
+                    **_row(job, "manual_required", "Plattform-Sound im jeweiligen Editor hinzufügen."),
+                    **prepared.handoff(job),
+                })
+                continue
             try:
-                prepared = (upload_music or {}).get(job.video)
                 upload_job = job
-                if clip.requires_trend_music and prepared is None:
+                if isinstance(prepared, NativeMusic):
+                    raise ValueError(f"{job.platform}: Native Audioübergabe fehlt für dieses Upload-Ziel.")
+                if prepared is None and _has_music_contract(clip):
                     raise ValueError(f"{job.platform}: Musikmix fehlt für {clip.video.name}.")
                 if prepared is not None:
                     if prepared.video is None or job.platform not in prepared.platforms:
