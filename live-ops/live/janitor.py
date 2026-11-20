@@ -105,6 +105,30 @@ grace = clamp((free_h - RESERVE_H) / 6, 1 / 6, 2) * 3600
 ev, pin = evals(), pins()
 log(f'free {fg:.1f} GB, burn {burn:.1f} GB/h -> {free_h:.1f} h left; ttl {ttl/60:.0f} min, grace {grace/60:.0f} min')
 
+HOLD = False
+def round_open():
+    """True while the last batch_summary lists candidates that are not rated yet (user rule 20.11.)."""
+    sp = f'{LIVE}/batch_summary.txt'
+    if not os.path.exists(sp): return 0
+    rated = set()
+    if os.path.exists(EVALS):
+        for l in open(EVALS):
+            try: e = json.loads(l); rated.add((e.get('rec'), e.get('cand')))
+            except Exception: pass
+    todo = 0
+    for l in open(sp):
+        if ':' not in l: continue
+        r, cs = l.split(':', 1); r = r.strip(); cs = cs.strip()
+        if cs in ('-', 'kein Segment', '') or r.startswith('DONE'): continue
+        todo += sum(1 for c in cs.split(',') if c and (r, c) not in rated)
+    return todo
+unrated = round_open()
+if unrated and not (free_gb() / burn < 0.5):      # only a real disk emergency overrides
+    HOLD = True
+    log(f'round open: {unrated} candidates not rated yet -> no trash/purge/offline deletes')
+elif unrated:
+    log(f'round open ({unrated} unrated) BUT disk emergency (<0.5 h) -> deleting anyway')
+
 # Streamer offline > OFFLINE_MIN: delete ALL raw of that channel (user rule). Supervisors keep running.
 OFFLINE_MIN = 30
 chan_last = {}
@@ -130,6 +154,7 @@ def twitch_offline(ch):
 STATE = f'{LIVE}/offline_state.json'
 st = json.load(open(STATE)) if os.path.exists(STATE) else {}
 stale = [ch for ch, t in chan_last.items() if now - t > OFFLINE_MIN * 60 and not any(os.path.basename(a).startswith(ch + '-') for a in alive)]
+if HOLD: stale = []
 if stale and not alive and len(stale) == len(chan_last):
     log('all channels stalled at once -> probably OUR outage, no offline deletes'); stale = []
 if stale and not net_ok():
@@ -155,7 +180,7 @@ try:
     watch = set(re.search(r'for CH in ([^;]+);', open(f'{LIVE}/batch_prep.sh').read()).group(1).split())
 except Exception:
     watch = None
-if watch:
+if watch and not HOLD:
     for d in glob.glob(f'{RAW}/*') + glob.glob(f'{TRASH}/*'):
         ch = os.path.basename(d).rsplit('-', 2)[0]
         if ch not in watch and d not in alive and os.path.isdir(d):
@@ -164,8 +189,7 @@ if watch:
 
 trashable, protected = [], []
 BATCH_LOCK = f'{LIVE}/batch.lock'
-batch_running = os.path.exists(BATCH_LOCK) and now - os.path.getmtime(BATCH_LOCK) < 1800
-if batch_running: log('batch running -> no trash/purge this run')
+batch_running = HOLD or (os.path.exists(BATCH_LOCK) and now - os.path.getmtime(BATCH_LOCK) < 1800)
 for rec in sorted(os.listdir(RAW)):
     d = f'{RAW}/{rec}'
     if not os.path.isdir(d): continue

@@ -5,10 +5,10 @@ S="/Users/moritz/Documents/#code/clip-pipeline/clip-forge/skills/clipping-stream
 D=~/.hermes/cache/scratch/live
 OUT=$D/batch_summary.txt; : > $OUT
 touch $D/batch.lock; trap "rm -f $D/batch.lock" EXIT
-RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in trymacs ohnepixel xrohat montanablack88 darkviperau zarbex kaicenat; do ls -t ~/clips/raw/live | grep "^$CH-" | head -3; done)
+RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in trymacs papaplatte lacy ludwig xrohat zarbex montanablack88 xqc caseoh_ moistcr1tikal darkviperau ohnepixel handofblood rewinside niekbeats sterzik pietsmiet; do ls -t ~/clips/raw/live | grep "^$CH-" | head -3; done)
 for R in $RECS; do
   CH=${R%-*-*}
-  LANG=de; case $CH in ohnepixel|darkviperau|kaicenat|caseoh_|zackrawrr|lacy) LANG=en;; esac
+  LANG=de; case $CH in lacy|ludwig|xqc|caseoh_|moistcr1tikal|darkviperau|ohnepixel) LANG=en;; esac
   uv run --quiet "$S/scripts/live_prepare.py" --rec-id $R >/dev/null 2>&1 || { echo "$R: kein Segment" >> $OUT; continue; }
   uv run --quiet "$S/scripts/detect_highlights.py" --vod-id $R --top 40 >/dev/null 2>&1
   C=$(python3 - "$R" <<'PY'

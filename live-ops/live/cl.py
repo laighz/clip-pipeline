@@ -99,3 +99,33 @@ def pairs_from_summary():
         if ':' in l and not l.strip().endswith('-') and 'kein' not in l:
             r, cs = l.split(':', 1); p[r.strip()] = [c for c in cs.strip().split(',') if c]
     return p
+
+
+def unrated():
+    """Candidates of the current batch_summary that have no evals.jsonl entry yet: [(rec, cand)]."""
+    rated = set()
+    ev = os.path.expanduser('~/.hermes/cache/scratch/live/evals.jsonl')
+    if os.path.exists(ev):
+        for l in open(ev):
+            try: e = json.loads(l); rated.add((e.get('rec'), e.get('cand')))
+            except Exception: pass
+    out = []
+    for l in open(os.path.expanduser('~/.hermes/cache/scratch/live/batch_summary.txt')):
+        if ':' not in l: continue
+        r, cs = l.split(':', 1); r = r.strip(); cs = cs.strip()
+        if cs in ('-', 'kein Segment', ''): continue
+        out += [(r, c) for c in cs.split(',') if c and (r, c) not in rated]
+    return out
+
+
+def rate_rest(s=1, p=1, r=1, note='gelesen, ohne Moment'):
+    """Rate every still unrated candidate with a low default. ONLY after show() was read: user rule 20.11.
+    'Alle Kandidaten einer Runde bewerten, erst dann darf der Janitor löschen.'"""
+    import subprocess
+    n = 0
+    for rec, c in unrated():
+        subprocess.run(['python3', os.path.expanduser('~/.hermes/cache/scratch/live/evaluate.py'), rec, '-', '--cand', c,
+                        '--standalone', str(s), '--payoff', str(p), '--relevance', str(r), '--reject', note],
+                       capture_output=True, text=True)
+        n += 1
+    return n
