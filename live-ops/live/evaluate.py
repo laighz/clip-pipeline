@@ -20,7 +20,6 @@ import argparse, json, os, time, random
 GAP = 1200 + random.randint(-300, 300)  # min. Abstand 15-25 min (zufällig), dazu max 3 Posts / 60 min
 
 D = os.path.expanduser('~/.hermes/cache/scratch/live')
-LOG = os.path.join(D, 'evals.jsonl')
 
 ap = argparse.ArgumentParser()
 ap.add_argument('rec'); ap.add_argument('clip')
@@ -30,9 +29,14 @@ ap.add_argument('--payoff', type=float, required=True)
 ap.add_argument('--relevance', type=float, required=True)
 ap.add_argument('--reject', default='')
 ap.add_argument('--threshold', type=float, default=None)
+ap.add_argument('--views', type=float, default=0,
+                help='Twitch-Views des Quellclips; ersetzt den Spike-Anteil, wenn es keinen Live-Spike gibt')
+ap.add_argument('--work', default='', help='Arbeitsordner statt ~/clips/work/<rec>')
+ap.add_argument('--log', default='', help='evals.jsonl statt dem Live-Log')
 a = ap.parse_args()
+LOG = a.log or os.path.join(D, 'evals.jsonl')
 
-work = os.path.expanduser(f'~/clips/work/{a.rec}/')
+work = a.work or os.path.expanduser(f'~/clips/work/{a.rec}/')
 cands = json.load(open(work + 'candidates.json'))['candidates']
 c = next((x for x in cands if x['id'] == a.cand), None)
 mx_score = max([x.get('score', 0) for x in cands] + [1e-9])
@@ -48,7 +52,10 @@ obj = 0.0
 if c:
     obj += 20 * min(1, c.get('score', 0) / mx_score)
     obj += 10 * min(1, c.get('signals', {}).get('uniq_chatters', 0) / mx_uniq)
-obj += 10 * min(1, z / mx_z)
+if spikes:
+    obj += 10 * min(1, z / mx_z)
+elif a.views > 0:
+    obj += 10
 subj = 2 * (a.standalone + a.payoff + a.relevance)
 score = round(obj + subj, 1)
 
@@ -75,5 +82,6 @@ else:
 rec = dict(gap_s=GAP, ts=now, rec=a.rec, clip=a.clip, cand=a.cand, streamer=streamer, score=score,
            objective=round(obj, 1), subjective=subj, standalone=a.standalone, payoff=a.payoff,
            relevance=a.relevance, decision=decision, reasons=reasons)
+os.makedirs(os.path.dirname(LOG) or '.', exist_ok=True)
 open(LOG, 'a').write(json.dumps(rec) + '\n')
 print(json.dumps(rec, ensure_ascii=False))

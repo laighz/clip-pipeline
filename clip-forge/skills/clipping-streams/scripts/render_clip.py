@@ -231,6 +231,8 @@ def main() -> None:
         # innerhalb eines Streams (z. B. zwei Cams, die die Ecke tauschen).
         clip_facecam = clip.get("facecam")
         cam = clip_facecam if _lib.is_rect(clip_facecam) else facecam
+        clip_game = clip.get("game")
+        use_game = clip_game if _lib.is_rect(clip_game) else game
         layout = clip.get("layout") or rconf.get("layout", "auto")
         if layout == "auto":
             layout = "stack" if cam else "blur"
@@ -240,7 +242,7 @@ def main() -> None:
         ass_path = rdir / f"{cid}.ass"
         try:
             ass, total, n_words = build_ass(clip, words, rconf, credit)
-            cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, game, encoder)
+            cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, use_game, encoder)
         except (KeyError, TypeError, ValueError) as exc:
             _lib.fail(f"{cid}: clips.json passt nicht zu den Abschnitten ({exc}). Erst validate_clips.py.",
                       _lib.EXIT_INVALID)
@@ -264,7 +266,7 @@ def main() -> None:
             fallback = (proc.stderr or "").strip()[-300:]
             log.warning("%s: h264_amf scheiterte, versuche libx264", cid)
             used = "x264"
-            cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, game, "x264")
+            cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, use_game, "x264")
             proc = _lib.run(cmd, timeout=1800)
         if proc.returncode != 0 or not part.is_file():
             part.unlink(missing_ok=True)   # halbe Datei weg, damit sie nie als fertig gilt

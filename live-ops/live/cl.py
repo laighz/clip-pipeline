@@ -161,6 +161,35 @@ def unrated():
     return out
 
 
+def record_result(vod, clip, platform, views, shares=0, comments=0, hours_after=24):
+    """Views, Shares und Comments in clips.db results schreiben."""
+    return uv_script(
+        "log_clip.py", "--result", "--vod-id", vod, "--clip", clip, "--platform", platform,
+        "--views", str(int(views)), "--shares", str(int(shares)), "--comments", str(int(comments)),
+        "--hours-after", str(int(hours_after)),
+    )
+
+
+def ingest_stats(vod, clip):
+    """Eigene Zahlen aus out/<vod>/<clip>.stats.json nach clips.db.
+
+    Fehlt die Datei, bleibt der Stand awaiting_stats und der nächste Lauf geht weiter.
+    """
+    home = os.environ.get("CLIPS_HOME", os.path.expanduser("~/clips"))
+    path = os.path.join(home, "out", vod, f"{clip}.stats.json")
+    if not os.path.isfile(path):
+        return {"status": "awaiting_stats"}
+    data = json.load(open(path))
+    done = []
+    for platform, stats in data.items():
+        if not isinstance(stats, dict) or "views" not in stats:
+            continue
+        record_result(vod, clip, platform, stats.get("views") or 0, stats.get("shares") or 0,
+                      stats.get("comments") or 0, stats.get("hours_after") or 24)
+        done.append(platform)
+    return {"status": "recorded", "platforms": done}
+
+
 def rate_rest(s=1, p=1, r=1, note='gelesen, ohne Moment'):
     """Rate every still unrated candidate with a low default. ONLY after show() was read: user rule 20.11.
     'Alle Kandidaten einer Runde bewerten, erst dann darf der Janitor löschen.'"""

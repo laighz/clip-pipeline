@@ -12,6 +12,7 @@ Instagram Originalitaets-Pruefung. Viele Reposts in kurzer Zeit auf einem jungen
 - Nur Clips mit klarer Pointe; reine Cutscenes/Gameplay ohne Reaktion nie (auch Publisher-Copyright).
 - Gesperrte Plattform: Flag-Datei `<KEY>_BLOCKED`, alle Laeufe ueberspringen sie, bis der User Freigabe meldet.
 - Instagram nach einer Sperre: max. 3 Reels / 24 h, mind. 4 h Abstand (Zaehler `live/ig_posts.log`).
+- Neues Konto: `warmup_since` (Unix-Zeit) setzen. 14 Tage Instagram 1/24 h und TikTok 2/24 h. `warmup.sh` schreibt den Stand um 13:00 Europe/Berlin nach `warmup.json`. Kein Feed, kein Like.
 - Streamer, der live gegen Re-Uploads/Restreams wettert oder seine Community zum Melden aufruft:
   hoehere Schwelle fuer seine Clips (z. B. 85 statt 80, `THRESH` in `evaluate.py`) oder pausieren,
   und den User einmal darauf hinweisen. Seine Community meldet sonst gezielt den Kanal.
@@ -19,10 +20,10 @@ Instagram Originalitaets-Pruefung. Viele Reposts in kurzer Zeit auf einem jungen
 ## Offene Hebel (nur nach Entscheidung des Users)
 - Eigenleistung: Voice-over/Intro 3-5 s (Kommentar-Skript aus clips.json einsprechen oder TTS) + 1 s Outro-Karte mit Kanalname. Wirkt am staerksten gegen "reused/unoriginal". Vorher fragen: eigene Stimme oder TTS.
 - Erlaubnis der Streamer/Management (Clipper-Programme). Mit Erlaubnis lassen sich Strikes anfechten.
-- Neue Konten aufwaermen: Woche 1 nur 1-2 Posts/Tag/Plattform, dann langsam auf 3-5/Tag. Neues Instagram erst 1-2 Wochen organisch nutzen (Profilbild, Bio, eigene Posts), dann max. 1 Reel/Tag.
+- Profilbild, Bio und die ersten eigenen Posts eines neuen Kontos macht der User, bevor der Takt hochgeht.
 - Snapchat Spotlight prueft streng: max. 1-2/Tag. X ist am robustesten (bis ~5/Tag).
 - Nachtruhe (keine Posts nachts), immer dieselbe IP/dasselbe Profil pro Konto, kein VPN-Wechsel.
-- Interaktion (Kommentare beantworten, folgen) macht der User selbst.
+- Interaktion (Kommentare beantworten, folgen, Liken) macht der User selbst.
 
 ## Frueherkennung
 - Taeglich Views der neuen Posts gegen den Schnitt pruefen. Faellt ein Post >80 % ab oder fehlt in der Hashtag-Suche: 48 h Pause auf dieser Plattform.

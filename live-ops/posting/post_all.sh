@@ -4,9 +4,18 @@
 # Global browser lock so overlapping jobs never drive the browser at the same time.
 V=$1
 C=$2
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+WARM="$ROOT/live-ops/live/warmup.py"
 cd ~/.hermes/cache/scratch/pw || exit 1
 LOCK=/tmp/livespiked_browser.lock
 LIVE=~/.hermes/cache/scratch/live
+
+warm_ok() {
+  if [ ! -f "$WARM" ]; then
+    return 0
+  fi
+  python3 "$WARM" --allow "$1" --log "$2" --live "$LIVE"
+}
 
 lock() {
   while ! mkdir "$LOCK" 2>/dev/null; do
@@ -76,6 +85,20 @@ for P in $order; do
         echo "IG: skipped (min 4 h Abstand)"
         continue
       fi
+      if ! warm_ok IG "$LIVE/ig_posts.log"; then
+        echo "IG: skipped (warmup)"
+        continue
+      fi
+    fi
+  fi
+  if [ "$P" = "TT" ]; then
+    if [ -f "$LIVE/TT_BLOCKED" ]; then
+      echo "TT: skipped (blocked)"
+      continue
+    fi
+    if ! warm_ok TT "$LIVE/tt_posts.log"; then
+      echo "TT: skipped (warmup)"
+      continue
     fi
   fi
   if [ "$FIRST" != 1 ]; then
@@ -96,7 +119,11 @@ for P in $order; do
       echo "YT $(date +%H:%M): $Y"
       ;;
     TT)
-      echo "TT $(date +%H:%M): $(run ttu.py "$V" "$C")"
+      R=$(run ttu.py "$V" "$C")
+      if echo "$R" | grep -q "tiktokstudio"; then
+        date +%s >> "$LIVE/tt_posts.log"
+      fi
+      echo "TT $(date +%H:%M): $R"
       ;;
     IG)
       R=$(run igu.py "$V" "$C")

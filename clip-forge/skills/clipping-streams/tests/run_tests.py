@@ -894,6 +894,223 @@ def t_whole_section(ctx: Ctx) -> str:
     return f"ein Abschnitt 0..{secs[0]['end']} s, Original unverändert"
 
 
+def t_game_cycle(ctx: Ctx) -> str:
+    """GTA VI gegen V, Fenster, Blocklist, Lerngewichte, QA und Warmup. Kein Post."""
+    from datetime import datetime, timezone
+
+    now = 1_700_000_000
+    os.environ["CLIPS_LIVE"] = str(ctx.home / "live")
+    (ctx.home / "live").mkdir(parents=True, exist_ok=True)
+
+    def iso(age: int) -> str:
+        return datetime.fromtimestamp(now - age, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def node(cid: str, views: int, age: int, duration: int, game: tuple[str, str], video: str = "",
+             offset: float | None = None) -> dict:
+        item = {
+            "id": cid, "url": f"https://clips.twitch.tv/{cid}", "viewCount": views,
+            "durationSeconds": duration, "createdAt": iso(age),
+            "broadcaster": {"login": "streamerone"},
+            "game": {"id": game[0], "name": game[1]},
+            "video": {"id": video} if video else {},
+        }
+        if offset is not None:
+            item["videoOffsetSeconds"] = offset
+        return {"node": item}
+
+    vi = ("999001", "Grand Theft Auto VI")
+    payload = {"data": {"game": {
+        "id": vi[0], "name": vi[1],
+        "clips": {"edges": [
+            node("freshclip", 99999, 3600, 20, vi),
+            node("oldclip", 99999, 30 * 3600, 20, vi),
+            node("gta5clip", 8000, 5 * 3600, 20, ("32982", "Grand Theft Auto V")),
+            node("blocked1", 7000, 5 * 3600, 20, vi),
+            node("longclip", 5000, 6 * 3600, 50, vi),
+            node("shortclip", 4000, 7 * 3600, 15, vi),
+            node("seen1", 100, 8 * 3600, 30, vi),
+        ]},
+    }}}
+    fix = ctx.home / "gql.json"
+    fix.write_text(json.dumps(payload), encoding="utf-8")
+    block = ctx.home / "live" / "blocklist.txt"
+    block.write_text("blocked1\n# kommentar\n", encoding="utf-8")
+    probe = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import fetch_game_clips as f; "
+        "assert not f.is_gta_v('Grand Theft Auto VI'); "
+        "assert f.is_gta_v('Grand Theft Auto V'); assert f.is_gta_v('GTA V'); "
+        "assert f.is_gta_vi('Grand Theft Auto VI')"
+    )
+    checked = subprocess.run([sys.executable, "-c", probe, str(SCRIPTS)], capture_output=True, text=True)
+    expect(checked.returncode == 0, checked.stderr[-300:] or "VI wurde als V gelesen")
+
+    def fetch() -> dict:
+        code, data, err = ctx.run("fetch_game_clips.py", "--fixture", str(fix), "--now", str(now),
+                                  "--blocklist", str(block))
+        expect(code == 0, f"fetch: {data.get('error')} {err[-200:]}")
+        return data
+
+    first = fetch()
+    expect([c["id"] for c in first["candidates"]] == ["longclip", "shortclip", "seen1"],
+           f"Reihenfolge nach Views: {[c['id'] for c in first['candidates']]}")
+    reasons = {r["id"]: r["reason"] for r in first["rejected"]}
+    expect(reasons.get("freshclip", "").startswith("jünger") and "älter" in reasons.get("oldclip", "")
+           and reasons.get("gta5clip") == "GTA V" and reasons.get("blocked1") == "blocklist",
+           f"Ablehnungen: {reasons}")
+    bad = ctx.home / "gql-v.json"
+    bad.write_text(json.dumps({"data": {"game": {"id": "32982", "name": "Grand Theft Auto V",
+                                                "clips": {"edges": []}}}}), encoding="utf-8")
+    code, data, _ = ctx.run("fetch_game_clips.py", "--fixture", str(bad), "--now", str(now))
+    expect(code == 1 and "V" in data.get("error", ""), f"GTA V muss den Lauf stoppen: {data}")
+
+    seed = "seed-lessons"
+    work = ctx.home / "work" / seed
+    work.mkdir(parents=True)
+    (work / "meta.json").write_text(json.dumps({"vod_id": seed, "streamer": "seed", "duration_s": 50}),
+                                    encoding="utf-8")
+    (work / "clips.json").write_text(json.dumps({"vod_id": seed, "clips": [
+        {"id": "clip01", "hook": "Sekunde, was war das"},
+        {"id": "clip02", "hook": "Damit hat hier keiner gerechnet"},
+    ]}), encoding="utf-8")
+    out = ctx.home / "out" / seed
+    out.mkdir(parents=True)
+    (out / "clip01.json").write_text(json.dumps({"clip_id": "clip01", "duration_s": 15}), encoding="utf-8")
+    (out / "clip02.json").write_text(json.dumps({"clip_id": "clip02", "duration_s": 50}), encoding="utf-8")
+    code, data, _ = ctx.run("log_clip.py", "--vod-id", seed)
+    expect(code == 0 and data["clips"] == 2, f"seed log: {data}")
+    for clip_id, views in (("clip01", "1000"), ("clip02", "100")):
+        for platform in ("tiktok", "instagram"):
+            code, _, _ = ctx.run("log_clip.py", "--result", "--vod-id", seed, "--clip", clip_id,
+                                 "--platform", platform, "--views", views, "--shares", "3", "--comments", "2")
+            expect(code == 0, f"result {clip_id} {platform}")
+    ranked = fetch()
+    expect([c["id"] for c in ranked["candidates"]][:2] == ["shortclip", "longclip"],
+           f"kurze Clips sollten vor langen liegen: {[c['id'] for c in ranked['candidates']]}")
+
+    seen = ctx.home / "work" / "seen-vod"
+    seen.mkdir(parents=True)
+    (seen / "meta.json").write_text(json.dumps({"vod_id": "seen-vod", "duration_s": 20, "streamer": "seed"}),
+                                    encoding="utf-8")
+    (seen / "clips.json").write_text(json.dumps({"vod_id": "seen-vod", "clips": []}), encoding="utf-8")
+    (seen / "source.json").write_text(json.dumps({"twitch_clip_id": "seen1", "video_id": "vid",
+                                                 "vod_offset": 12}), encoding="utf-8")
+    code, data, _ = ctx.run("log_clip.py", "--vod-id", "seen-vod")
+    expect(code == 0 and data.get("source") is True, f"source nicht geloggt: {data}")
+    again = fetch()
+    expect("seen1" not in [c["id"] for c in again["candidates"]]
+           and any(r["id"] == "seen1" for r in again["rejected"]),
+           f"seen1 muss raus: {again['candidates']} {again['rejected']}")
+
+    plan_id = "game-plan"
+    plan_work = ctx.home / "work" / plan_id
+    plan_work.mkdir(parents=True)
+    (plan_work / "meta.json").write_text(json.dumps({
+        "vod_id": plan_id, "streamer": "streamerone", "duration_s": 30, "width": 1920, "height": 1080,
+        "channel": "streamerone"}), encoding="utf-8")
+    (plan_work / "source.json").write_text(json.dumps({"login": "streamerone", "twitch_clip_id": "shortclip"}),
+                                           encoding="utf-8")
+    (plan_work / "candidates.json").write_text(json.dumps(
+        {"candidates": [{"id": "c20", "moment_s": 20, "score": 4}]}), encoding="utf-8")
+    code, data, err = ctx.run("plan_game_clip.py", "--vod-id", plan_id)
+    expect(code == 0 and data["game"] == [0, 0, 1920, 842], f"Spielausschnitt: {data} {err[-200:]}")
+    plan = json.loads((plan_work / "clips.json").read_text(encoding="utf-8"))
+    plan["clips"][0]["facecam"] = [10, 10, 200, 120]
+    (plan_work / "clips.json").write_text(json.dumps(plan), encoding="utf-8")
+    blank = ctx.home / "blank.mp4"
+    blank.write_bytes(b"")
+    (plan_work / "sections.json").write_text(json.dumps({"sections": [
+        {"id": "s0-30", "start": 0, "end": 30, "file": str(blank), "file_offset": 0}]}), encoding="utf-8")
+    code, data, _ = ctx.run("validate_clips.py", "--vod-id", plan_id)
+    expect(code == 0, f"gültiger GTA-Plan: {data.get('errors')}")
+    saved = json.loads((plan_work / "clips.json").read_text(encoding="utf-8"))
+
+    def broken(mutate, label: str) -> None:
+        plan = json.loads(json.dumps(saved))
+        mutate(plan)
+        (plan_work / "clips.json").write_text(json.dumps(plan), encoding="utf-8")
+        code, data, _ = ctx.run("validate_clips.py", "--vod-id", plan_id)
+        expect(code == 2, f"{label}: exit {code} {data.get('errors')}")
+
+    broken(lambda p: p["clips"][0]["segments"][-1].pop("role"), "kein Payoff")
+    broken(lambda p: p["clips"][0].__setitem__("game", [0, 900, 1920, 180]), "Chat-Band")
+    broken(lambda p: p["clips"][0]["captions"].__setitem__("tiktok", "ohne credit #gta6"), "kein @login")
+    (plan_work / "clips.json").write_text(json.dumps(saved), encoding="utf-8")
+    code, rendered, _ = ctx.run("render_clip.py", "--vod-id", plan_id, "--dry-run", "--clip", "clip01")
+    cmd = " ".join(str(part) for part in ((rendered.get("clips") or [{}])[0].get("ffmpeg") or []))
+    expect(code == 0 and "crop=1920:842:0:0" in cmd, f"Crop fehlt: {cmd[-300:]}")
+
+    plain = "plain-vod"
+    pwork = ctx.home / "work" / plain
+    pwork.mkdir(parents=True)
+    (pwork / "meta.json").write_text(json.dumps({"vod_id": plain, "duration_s": 40, "streamer": STREAMER}),
+                                     encoding="utf-8")
+    (pwork / "sections.json").write_text(json.dumps({"sections": [
+        {"id": "s0-40", "start": 0, "end": 40, "file": str(blank), "file_offset": 0}]}), encoding="utf-8")
+    (pwork / "clips.json").write_text(json.dumps({"vod_id": plain, "clips": [{
+        "id": "clip01", "segments": [{"start": 0, "end": 20}],
+        "hook": "Nur ein Test", "title": "Test #Shorts",
+        "captions": {"youtube": "a #Shorts", "tiktok": "b", "instagram": "c"},
+        "commentary": "x"}]}), encoding="utf-8")
+    code, data, _ = ctx.run("validate_clips.py", "--vod-id", plain)
+    expect(code == 0, f"ohne cycle=game darf der Payoff fehlen: {data.get('errors')}")
+
+    ev = ctx.home / "work" / "eval-vod"
+    ev.mkdir(parents=True)
+    (ev / "candidates.json").write_text(json.dumps(
+        {"candidates": [{"id": "c20", "moment_s": 20, "score": 3, "signals": {"uniq_chatters": 0}}]}),
+        encoding="utf-8")
+    proc = subprocess.run([sys.executable, str(TESTS.parents[3] / "live-ops" / "live" / "evaluate.py"),
+                           "eval-vod", "clip01", "--cand", "c20", "--standalone", "8", "--payoff", "8",
+                           "--relevance", "9", "--views", "5000", "--work", str(ev) + "/",
+                           "--log", str(ctx.home / "evals.jsonl")],
+                          capture_output=True, text=True, timeout=30)
+    expect(proc.returncode == 0, proc.stderr[-300:])
+    gate = json.loads(proc.stdout.strip().splitlines()[-1])
+    expect(gate["decision"] == "post" and gate["score"] >= 80, f"Gate: {gate}")
+
+    warm = ctx.home / "warm"
+    stamp = str(now)
+    (warm / "ig_posts.log").parent.mkdir(parents=True, exist_ok=True)
+    (warm / "warmup_since").write_text(str(now - 86400), encoding="utf-8")
+    (warm / "ig_posts.log").write_text(stamp + "\n", encoding="utf-8")
+    warm_py = TESTS.parents[3] / "live-ops" / "live" / "warmup.py"
+
+    def warm_run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(warm_py), *args, "--live", str(warm), "--now", stamp],
+                              capture_output=True, text=True, timeout=30)
+
+    wrote = warm_run("--write")
+    expect(wrote.returncode == 0 and json.loads(wrote.stdout)["phase"] == "warmup", wrote.stdout)
+    denied = warm_run("--allow", "IG", "--log", str(warm / "ig_posts.log"))
+    expect(denied.returncode == 1, f"zweites IG-Reel im Warmup muss stoppen: {denied.stdout}")
+    (warm / "warmup_since").write_text(str(now - 20 * 86400), encoding="utf-8")
+    warm_run("--write")
+    allowed = warm_run("--allow", "IG", "--log", str(warm / "ig_posts.log"))
+    expect(allowed.returncode == 0, f"nach 14 Tagen kein Extra-Limit: {allowed.stdout}")
+
+    proc = subprocess.run([sys.executable, str(TESTS.parents[3] / "live-ops" / "live" / "game_clip_cycle.py"),
+                           "--dry-run", "--fixture", str(fix), "--now", str(now)],
+                          capture_output=True, text=True, timeout=60)
+    expect(proc.returncode == 0, proc.stderr[-300:] or proc.stdout[-300:])
+    cycle = json.loads(proc.stdout.strip().splitlines()[-1])
+    expect(cycle.get("dry_run") and cycle["candidates"][0]["id"] == "shortclip", f"Lauf: {cycle}")
+    url_probe = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import game_clip_cycle as g\n"
+        "assert g.clip_download_url('https://clips.twitch.tv/AbC?q=1') == 'https://clips.twitch.tv/AbC'\n"
+        "try:\n    g.clip_download_url('http://clips.twitch.tv/AbC')\nexcept ValueError:\n    pass\n"
+        "else:\n    raise SystemExit('http wurde akzeptiert')\n"
+        "try:\n    g.clip_download_url('https://evil.example/AbC')\nexcept ValueError:\n    pass\n"
+        "else:\n    raise SystemExit('fremde Hosts wurden akzeptiert')\n"
+    )
+    checked = subprocess.run([sys.executable, "-c", url_probe,
+                              str(TESTS.parents[3] / "live-ops" / "live")],
+                             capture_output=True, text=True)
+    expect(checked.returncode == 0, checked.stderr[-300:] or checked.stdout[-300:])
+    expect(not (ctx.home / "raw").exists(), "dry-run hat heruntergeladen")
+    os.environ.pop("CLIPS_LIVE", None)
+    return "VI bleibt VI, V fliegt raus, Warmup deckelt Instagram, dry-run postet nicht"
+
+
 STAGES = {
     "check_env": t_check_env,
     "validate_config": t_validate_config,
@@ -916,6 +1133,7 @@ STAGES = {
     "timeout_json": t_timeout_json,
     "live_chat_monitor": t_live_chat_monitor,
     "live_record": t_live_record,
+    "game_cycle": t_game_cycle,
 }
 
 
