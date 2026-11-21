@@ -32,8 +32,24 @@ import _lib
 
 COLD_OPEN_MAX_S = 3.0
 HARD_MIN_S = 8.0
+CHAT_BAND = 0.22
 PLATFORMS = ("youtube", "tiktok", "instagram")
 ID_RE = re.compile(r"[a-z0-9_-]{1,40}")
+
+
+def game_rect(clip: dict[str, Any], settings: dict[str, Any]) -> list | None:
+    if _lib.is_rect(clip.get("game")):
+        return list(clip["game"])
+    layout = settings.get("layout") or {}
+    for key in ("game", "gameplay"):
+        if _lib.is_rect(layout.get(key)):
+            return list(layout[key])
+    return None
+
+
+def chat_band_clear(rect: list, height: float) -> bool:
+    _x, y, _w, h = rect
+    return y + h <= height * (1 - CHAT_BAND) + 0.5
 
 
 def overlap(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -81,6 +97,10 @@ def main() -> None:
     if isinstance(plan, dict) and plan.get("vod_id") not in (None, args.vod_id):
         errors.append(f"vod_id in clips.json ({plan.get('vod_id')}) passt nicht zu --vod-id {args.vod_id}")
 
+    game_cycle = isinstance(plan, dict) and plan.get("cycle") == "game"
+    source = _lib.read_json(work / "source.json") if (work / "source.json").is_file() else {}
+    login = str(source.get("login") or meta.get("channel") or meta.get("streamer") or "").lstrip("@")
+    frame_h = float(meta.get("height") or 1080)
     seen: set[str] = set()
     main_ranges: list[tuple[str, float, float]] = []
     summary = []
@@ -199,6 +219,28 @@ def main() -> None:
         if layout == "stack" and not cam_known:
             warnings.append(f"{cid}: stack ohne Facecam (weder in clips.json noch in streamers.yaml), "
                             "es wird blur genutzt")
+        if game_cycle:
+            roles = [s.get("role") for s in segs if isinstance(s, dict)]
+            if not roles or roles[-1] != "payoff":
+                errors.append(f"{cid}: das letzte Segment muss role payoff sein")
+            if not _lib.is_rect(clip_cam):
+                errors.append(f"{cid}: facecam fehlt (detect_facecam.py --write-clip)")
+            rect = game_rect(clip, st)
+            if rect is None:
+                errors.append(f"{cid}: Spielausschnitt fehlt, unteres Chat-Band wäre im Bild")
+            elif not chat_band_clear(rect, frame_h):
+                errors.append(f"{cid}: Spielausschnitt ragt ins Chat-Band (untere {int(CHAT_BAND * 100)} Prozent)")
+            if not login:
+                errors.append(f"{cid}: Broadcaster-Login fehlt für @login")
+            else:
+                tag = f"@{login}".lower()
+                cap_map = caps if isinstance(caps, dict) else {}
+                for platform in ("tiktok", "instagram"):
+                    text = str(cap_map.get(platform) or "")
+                    if tag not in text.lower():
+                        errors.append(f"{cid}.captions.{platform}: {tag} fehlt")
+                    if "#fyp" in text.lower():
+                        errors.append(f"{cid}.captions.{platform}: kein #fyp")
         summary.append({"id": cid, "duration_s": round(total, 2), "segments": len(segs)})
 
     warnings = list(dict.fromkeys(warnings))

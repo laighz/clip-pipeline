@@ -248,6 +248,16 @@ uv run scripts/post_clips.py --vod-id <vod-id>
 uv run scripts/post_clips.py --vod-id <vod-id> --publish
 ```
 
+## GTA-6-Clips
+
+`live-ops/live/game_clip_loop.sh` ruft das alle zwei Stunden. Von Hand, ohne zu posten:
+
+```bash
+uv run --quiet "<skill>/scripts/fetch_game_clips.py"
+```
+
+Grand Theft Auto V ist ein Fehler, kein Ersatz. Der Treffer wird wie eine eigene Datei geschnitten (`fetch_signals.py --input`), dann `plan_game_clip.py`. `cycle: game` in clips.json verlangt Payoff, Facecam, einen Spielausschnitt über dem Chat und `@login` in der TikTok- und Instagram-Caption. Views und Shares landen über `log_clip.py --result` in `clips.db` und ändern die nächste Sortierung.
+
 ## Weg C: Live-Aufnahme
 Nur wenn der User es verlangt. Ein Prozess nimmt per streamlink in
 10-Minuten-Segmenten auf und zählt den Chat auf derselben Zeitachse. Er läuft
@@ -303,6 +313,8 @@ Highlights in Twitch-VODs, lokalen Aufnahmen und, nur auf ausdrücklichen Wunsch
 | render_clip.py | Vertikalen Clip schreiben | --vod-id |
 | verify_clip.py | Auflösung, Lautheit, Untertitel | --vod-id |
 | log_clip.py | Ergebnis in clips.db | --vod-id |
+| fetch_game_clips.py | GTA-VI-Clips, 3–24 h, nach Views | --fixture oder Netz |
+| plan_game_clip.py | clips.json mit Stack, Hook, Chat-Crop | --vod-id |
 | record_start.py | Live-Aufnahme, nur auf Wunsch | --channel |
 
 ## Examples

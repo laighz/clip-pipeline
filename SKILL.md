@@ -85,6 +85,12 @@ Läuft die Session über ein Gateway, sieht der User kein Terminal:
 - Fertige Clips als Datei zurückschicken: `MEDIA:/absoluter/pfad/clipXX.mp4`, dazu Hook und Titel als Text.
 - Die Browser-Anmeldung fürs Posten geht nur am Rechner selbst. Ist ein Konto nicht angemeldet, das sagen und nicht weiter versuchen.
 
+## GTA-6-Lauf
+
+Nur wenn `live-ops/live/game_clip_loop.sh` läuft. Alle zwei Stunden sucht `fetch_game_clips.py` die meistgesehenen Twitch-Clips von Grand Theft Auto VI, die zwischen 3 und 24 Stunden alt sind. Grand Theft Auto V stoppt den Lauf. Schnitt, Facecam, Captions und Prüfung bleiben die Skripte von clipping-streams. Gepostet wird höchstens ein Clip, nur TikTok und Instagram, über `post_all.sh` mit `SKIP=YT|X|SC`.
+
+Um 13:00 Europe/Berlin schreibt `live-ops/live/warmup.sh` den Kontostand. In den ersten 14 Tagen nach `warmup_since` gilt ein engeres Tageslimit. Likes, Kommentare und Folgen macht der User.
+
 ## Einbinden
 
 `<root>` ist der Ordner dieser Datei. Claude, ein Skill namens `clip-pipeline`:
