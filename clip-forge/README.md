@@ -41,7 +41,7 @@ ln -s /pfad/zum/repo/skills/clipping-streams ~/.claude/skills/clipping-streams
 New-Item -ItemType Junction -Path "$HOME\.claude\skills\clipping-streams" -Target "C:\pfad\zum\repo\skills\clipping-streams"
 ```
 
-Mit der skills-CLI, wenn dieses Repo die Quelle ist: `npx skills add <repo> -a claude-code`.
+Mit der skills-CLI, wenn dieses Repo die Quelle ist: `npx skills@1.5.16 add <repo> -a claude-code`.
 
 ## Voraussetzungen
 

@@ -13,18 +13,18 @@ bei FAIL erst in der Liste nachsehen, dann einmal wiederholen.
 Captions: TITEL + Block pro Plattform aus out/<vod>/<clip>.txt; X/SNAPCHAT fallen auf TIKTOK/INSTAGRAM zurueck,
   wenn kein eigener Block da ist (besser: cdp_helper.add_platform_blocks vorher aufrufen).
 """
-import os, random, re, sys, time
+import os, random, re, sys, tempfile, time
 from cdp_helper import connect, get_page, shot, caption
 
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 STAGGER = '--stagger' in sys.argv
 VOD, CLIP = args[0], args[1]
 WANT = (args[2] if len(args) > 2 else 'yt,tt,ig,x,sc').split(',')
-BASE = f'/Users/moritz/clips/out/{VOD}/{CLIP}'
+BASE = os.path.expanduser(f'~/clips/out/{VOD}/{CLIP}')
 MP4, TXT = BASE + '.mp4', BASE + '.txt'
 YT_CHANNEL = 'UCwCaCEXf-nQ0SbLcGi2Bv5Q'
 SNAP_PROFILE = 'https://profile.snapchat.com/'
-LOCK = '/tmp/livespiked_browser.lock'
+LOCK = os.path.join(tempfile.gettempdir(), 'livespiked_browser.lock')
 FLAGS = os.path.expanduser('~/.hermes/cache/scratch/live')
 
 p, b, ctx = connect()

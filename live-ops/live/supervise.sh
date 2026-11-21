@@ -2,7 +2,8 @@
 # Usage: supervise.sh <channel>
 # Keeps channel recorded across stream restarts. Exits (notify) only when a spike is cuttable (CUT) or channel offline > 60 min (GONE).
 CH=$1
-S="/Users/moritz/Documents/#code/clip-pipeline/clip-forge/skills/clipping-streams"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+S="$ROOT/clip-forge/skills/clipping-streams"
 D=~/.hermes/cache/scratch/live
 OFF=0
 while true; do

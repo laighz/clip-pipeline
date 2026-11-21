@@ -1,10 +1,28 @@
-import json, os, subprocess
-S = '"/Users/moritz/Documents/#code/clip-pipeline/clip-forge/skills/clipping-streams"'
+import json, os, re, subprocess
+from pathlib import Path
 
-def sh(cmd, timeout=600):
-    env = dict(os.environ, PATH='/opt/homebrew/bin:/usr/local/bin:' + os.environ.get('PATH', '') + ':' + os.path.expanduser('~/.local/bin'))
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, env=env)
-    return r.stdout + r.stderr
+SCRIPTS = Path(__file__).resolve().parents[2] / "clip-forge" / "skills" / "clipping-streams" / "scripts"
+
+
+def _ensure_path():
+    extras = ["/opt/homebrew/bin", "/usr/local/bin", os.path.expanduser("~/.local/bin")]
+    parts = [part for part in os.environ.get("PATH", "").split(os.pathsep) if part]
+    for item in reversed(extras):
+        if item not in parts:
+            parts.insert(0, item)
+    os.environ["PATH"] = os.pathsep.join(parts)
+
+
+_ensure_path()
+
+
+def run(args, timeout=600):
+    proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def uv_script(name, *args, timeout=600):
+    return run(["uv", "run", "--quiet", str(SCRIPTS / name), *args], timeout=timeout)
 
 def W(rec):
     return os.path.expanduser(f'~/clips/work/{rec}/')
@@ -30,7 +48,12 @@ def add_clips(rec, new):
     ids = {c['id'] for c in new}
     d['clips'] = [c for c in d['clips'] if c['id'] not in ids] + new
     json.dump(d, open(p, 'w'), ensure_ascii=False, indent=1)
-    return sh(f'uv run --quiet {S}/scripts/validate_clips.py --vod-id {rec} 2>&1 | grep -iE "warn|error" | grep -v "^{{"')
+    _code, out, err = uv_script("validate_clips.py", "--vod-id", rec)
+    text = out + err
+    return "\n".join(
+        line for line in text.splitlines()
+        if re.search(r"warn|error", line, re.I) and not line.startswith("{")
+    )
 
 def next_id(rec):
     p = W(rec) + 'clips.json'
@@ -38,7 +61,11 @@ def next_id(rec):
     return max([int(c['id'][4:]) for c in json.load(open(p))['clips']] + [0]) + 1
 
 def facecam(rec, clip, extra=''):
-    o = sh(f'uv run --quiet {S}/scripts/detect_facecam.py --vod-id {rec} --clip {clip} {extra} 2>/dev/null', 300)
+    args = ["--vod-id", rec, "--clip", clip]
+    if extra:
+        args.extend(extra.split())
+    _code, out, _err = uv_script("detect_facecam.py", *args, timeout=300)
+    o = out
     try:
         j = json.loads(o.strip().splitlines()[-1])
         return j['status'], j.get('faces'), j.get('facecam'), j.get('snapshot') or j.get('frame')
@@ -52,7 +79,8 @@ def set_field(rec, clip, **kw):
     json.dump(d, open(p, 'w'), ensure_ascii=False, indent=1)
 
 def render(rec, clips):
-    o = sh(f'uv run --quiet {S}/scripts/render_clip.py --vod-id {rec} --clip {",".join(clips)} --force 2>&1 | grep INFO', 600)
+    _code, out, err = uv_script("render_clip.py", "--vod-id", rec, "--clip", ",".join(clips), "--force", timeout=600)
+    o = "\n".join(line for line in (out + err).splitlines() if "INFO" in line)
     d = json.load(open(W(rec) + 'clips.json'))
     for c in d['clips']:
         if c['id'] not in clips: continue
@@ -66,20 +94,35 @@ def render(rec, clips):
         open(tp, 'w').write(t)
     return o
 
-def stills(rec, clips, out='/Users/moritz/.hermes/cache/scratch/stills.jpg', ts=(2, 10)):
-    code = f"""
+_STILLS = """
+import sys
+from pathlib import Path
 import cv2
-fr=[]
-for c in {list(clips)!r}:
-    v=cv2.VideoCapture('/Users/moritz/clips/out/{rec}/'+c+'.mp4')
-    for t in {list(ts)!r}:
-        v.set(cv2.CAP_PROP_POS_MSEC,t*1000); ok,f=v.read()
-        if ok: fr.append(cv2.resize(f,(270,480)))
-cv2.imwrite('{out}',cv2.hconcat(fr))
+rec, clips, ts, out = sys.argv[1], sys.argv[2].split(","), sys.argv[3].split(","), sys.argv[4]
+base = Path.home() / "clips" / "out" / rec
+frames = []
+for clip in clips:
+    video = cv2.VideoCapture(str(base / f"{clip}.mp4"))
+    for stamp in ts:
+        video.set(cv2.CAP_PROP_POS_MSEC, float(stamp) * 1000)
+        ok, frame = video.read()
+        if ok:
+            frames.append(cv2.resize(frame, (270, 480)))
+    video.release()
+if frames:
+    cv2.imwrite(out, cv2.hconcat(frames))
 """
-    open('/Users/moritz/.hermes/cache/scratch/_st.py', 'w').write(code)
-    sh('cd ~/.hermes/cache/scratch && uv run --quiet --with opencv-python-headless python _st.py', 120)
-    return out
+
+
+def stills(rec, clips, out=None, ts=(2, 10)):
+    scratch = Path.home() / ".hermes" / "cache" / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    target = Path(out) if out else scratch / "stills.jpg"
+    script = scratch / "_st.py"
+    script.write_text(_STILLS)
+    run(["uv", "run", "--quiet", "--with", "opencv-python-headless", "python", str(script),
+         rec, ",".join(clips), ",".join(str(stamp) for stamp in ts), str(target)], timeout=120)
+    return str(target)
 
 def show(pairs, n=600):
     for r, cs in pairs.items():

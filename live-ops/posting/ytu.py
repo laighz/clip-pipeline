@@ -1,14 +1,14 @@
 from h import *
-import sys
+import os, sys
 vod,clip=sys.argv[1],sys.argv[2]
-t=open(f'/Users/moritz/clips/out/{vod}/{clip}.txt').read()
+t=open(os.path.expanduser(f'~/clips/out/{vod}/{clip}.txt')).read()
 title=t.split('TITEL:')[1].split('\n')[0].strip()
 desc=t.split('--- YOUTUBE ---')[1].split('---')[0].strip()
 p,b,ctx=connect()
 pg=get_page(ctx,'studio.youtube.com')
 pg.bring_to_front()
 pg.goto('https://studio.youtube.com/channel/UCwCaCEXf-nQ0SbLcGi2Bv5Q/videos/upload?d=ud',wait_until='domcontentloaded'); pg.wait_for_timeout(7000)
-pg.locator('input[type=file]').first.set_input_files(f'/Users/moritz/clips/out/{vod}/{clip}.mp4')
+pg.locator('input[type=file]').first.set_input_files(os.path.expanduser(f'~/clips/out/{vod}/{clip}.mp4'))
 dlg=pg.locator('ytcp-uploads-dialog')
 dlg.locator('#title-textarea #textbox').wait_for(timeout=60000); pg.wait_for_timeout(3000)
 tb=dlg.locator('#title-textarea #textbox'); tb.click(); pg.keyboard.press('Meta+A'); pg.keyboard.type(title)

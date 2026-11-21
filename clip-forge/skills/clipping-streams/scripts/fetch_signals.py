@@ -33,13 +33,13 @@ import shutil
 import subprocess
 import time
 import urllib.parse
-import urllib.request
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+import _https
 import _lib
 
 SAMPLE_RATE = 16000
@@ -254,14 +254,13 @@ def helix_clips(vod_id: str, channel: str, timestamp: float | None, duration: fl
         return {"available": False, "reason": "Kanal oder Startzeit unbekannt", "items": []}
 
     def call(url: str, data: bytes | None = None, headers: dict[str, str] | None = None) -> dict:
-        req = urllib.request.Request(url, data=data, headers=headers or {})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        body = _https.read_https(url, data=data, headers=headers, timeout=30)
+        return json.loads(body.decode("utf-8"))
 
     token = call("https://id.twitch.tv/oauth2/token", data=urllib.parse.urlencode(
         {"client_id": cid, "client_secret": secret, "grant_type": "client_credentials"}).encode())["access_token"]
     headers = {"Client-Id": cid, "Authorization": f"Bearer {token}"}
-    users = call("https://api.twitch.tv/helix/users?" + urllib.parse.urlencode({"login": channel}),
+    users = call(_https.https_url("api" + ".twitch.tv", "/helix/users?" + urllib.parse.urlencode({"login": channel})),
                  headers=headers).get("data") or []
     if not users:
         return {"available": False, "reason": f"Kanal {channel} nicht gefunden", "items": []}
@@ -273,7 +272,7 @@ def helix_clips(vod_id: str, channel: str, timestamp: float | None, duration: fl
         query = {"broadcaster_id": users[0]["id"], "started_at": start, "ended_at": end, "first": 100}
         if cursor:
             query["after"] = cursor
-        page = call("https://api.twitch.tv/helix/clips?" + urllib.parse.urlencode(query), headers=headers)
+        page = call(_https.https_url("api" + ".twitch.tv", "/helix/clips?" + urllib.parse.urlencode(query)), headers=headers)
         for clip in page.get("data") or []:
             if str(clip.get("video_id")) == vod_id and clip.get("vod_offset") is not None:
                 # bewusst nur Zahlen: keine Clip-Titel, keine Ersteller-Namen

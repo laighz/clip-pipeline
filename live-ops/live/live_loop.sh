@@ -2,7 +2,8 @@
 # Usage: live_loop.sh <rec_id>
 # Collects spikes silently; exits (=> notify) when a spike is cuttable (recorded_until > moment+60) or recording ended.
 R=$1
-S="/Users/moritz/Documents/#code/clip-pipeline/clip-forge/skills/clipping-streams"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+S="$ROOT/clip-forge/skills/clipping-streams"
 D=~/.hermes/cache/scratch/live
 F=$D/${R}_spikes.jsonl; DONE=$D/${R}_done.txt; ST=$D/${R}_status.json
 touch "$F" "$DONE"

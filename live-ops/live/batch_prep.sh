@@ -1,10 +1,16 @@
 #!/bin/bash
 # Batch prep for all live recordings: prepare, detect, fetch+transcribe top new candidates (max 2 per stream).
 # Output: live/batch_summary.txt (per rec: candidate ids + transcript paths)
-S="/Users/moritz/Documents/#code/clip-pipeline/clip-forge/skills/clipping-streams"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+S="$ROOT/clip-forge/skills/clipping-streams"
 D=~/.hermes/cache/scratch/live
 OUT=$D/batch_summary.txt; : > $OUT
-touch $D/batch.lock; trap "rm -f $D/batch.lock" EXIT
+touch "$D/batch.lock"
+cleanup() {
+  cd "$D" || return
+  rm -f batch.lock
+}
+trap cleanup EXIT
 RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in trymacs papaplatte lacy ludwig xrohat zarbex montanablack88 xqc caseoh_ moistcr1tikal darkviperau ohnepixel handofblood rewinside niekbeats sterzik pietsmiet; do ls -t ~/clips/raw/live | grep "^$CH-" | head -3; done)
 for R in $RECS; do
   CH=${R%-*-*}

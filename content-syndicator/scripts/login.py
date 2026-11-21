@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from postclips.browser import LOGIN_URL, OPEN, find_browser, known_platforms  # noqa: E402
+from postclips.browser import LOGIN_URL, OPEN, REAL_BROWSER_PROFILE, find_browser, known_platforms  # noqa: E402
 from postclips.library import PLATFORM_ORDER  # noqa: E402
 
 
@@ -36,9 +36,7 @@ def launch(playwright, profile: Path, headless: bool):
         return playwright.chromium.launch_persistent_context(
             user_data_dir=str(profile),
             executable_path=find_browser(),
-            # Echter Browser: Cookies sind mit dem Schlüsselbund verschlüsselt.
-            # Playwrights Mock-Keychain könnte sie nicht lesen.
-            ignore_default_args=["--use-mock-keychain"] if find_browser() else None,
+            ignore_default_args=[REAL_BROWSER_PROFILE] if find_browser() else None,
             headless=headless,
             viewport={"width": 1400, "height": 900},
             locale="de-DE",
