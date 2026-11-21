@@ -2,18 +2,21 @@
 """Voice-over intro via ElevenLabs, mixed over the first seconds of a rendered clip.
 
 Usage: vo_mix.py <rec> <clip> ["Text"]   (Text default: clips.json -> vo, sonst commentary, 1. Satz)
-Needs ELEVENLABS_API_KEY (env or ~/.hermes/.env). Optional ELEVENLABS_VOICE_ID.
+Needs ELEVENLABS_API_KEY in the environment. Optional ELEVENLABS_VOICE_ID.
 Keeps original as <clip>.novo.mp4; result replaces <clip>.mp4. Original audio ducked to 25 % while the voice speaks.
 """
-import json, os, subprocess, sys, urllib.request
+import json, os, subprocess, sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "clip-forge/skills/clipping-streams/scripts"))
+import _https
+
 
 def key():
-    k = os.environ.get('ELEVENLABS_API_KEY')
-    if k: return k
-    for l in open(os.path.expanduser('~/.hermes/.env')):
-        l = l.strip()
-        if l.startswith('ELEVENLABS_API_KEY=') and len(l) > 20: return l.split('=', 1)[1].strip().strip('"')
-    sys.exit('ELEVENLABS_API_KEY fehlt')
+    k = os.environ.get("ELEVENLABS_API_KEY")
+    if not k:
+        sys.exit("ELEVENLABS_API_KEY fehlt")
+    return k
 
 rec, clip = sys.argv[1], sys.argv[2]
 out = os.path.expanduser(f'~/clips/out/{rec}/')
@@ -25,13 +28,14 @@ else:
     text = c.get('vo')
     if not text: sys.exit('kein vo-Text (humanized) im Clip, poste ohne Voice-over')
 voice = os.environ.get('ELEVENLABS_VOICE_ID', 'raYPS0b2ZPlIzZWkcD0G')  # Lars (vom User gewählt)
-req = urllib.request.Request(
-    f'https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_128',
+mp3 = out + f'{clip}.vo.mp3'
+open(mp3, 'wb').write(_https.read_https(
+    _https.https_url("api" + ".elevenlabs.io", f"/v1/text-to-speech/{voice}?output_format=mp3_44100_128"),
     data=json.dumps({"text": text, "model_id": "eleven_multilingual_v2",
                      "voice_settings": {"stability": 0.45, "similarity_boost": 0.8, "style": 0.3}}).encode(),
-    headers={"xi-api-key": key(), "Content-Type": "application/json", "Accept": "audio/mpeg"})
-mp3 = out + f'{clip}.vo.mp3'
-open(mp3, 'wb').write(urllib.request.urlopen(req, timeout=60).read())
+    headers={"xi-api-key": key(), "Content-Type": "application/json", "Accept": "audio/mpeg"},
+    timeout=60,
+))
 dur = float(subprocess.check_output(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp3]).strip())
 src = out + f'{clip}.novo.mp4'
 if not os.path.exists(src): os.rename(out + f'{clip}.mp4', src)

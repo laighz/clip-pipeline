@@ -1,45 +1,36 @@
 ---
 name: clip-pipeline
 description: >-
-  Ein Skill für den ganzen Weg. Findet Highlights in Twitch-VODs, eigenen
-  Aufnahmen und, nur auf ausdrücklichen Wunsch, in einem laufenden
-  Twitch-Stream, schneidet daraus vertikale Kurzclips und postet sie auf
-  YouTube, TikTok, Instagram, Snapchat und X. Nutzen, sobald der User Clips,
-  Highlights, Shorts, Reels, TikToks oder das Posten eines fertigen Clips will.
-  Auch auf Englisch und ohne die Wörter Skill oder ffmpeg. Live-Aufnahme nur
-  auf ausdrücklichen Wunsch. Nicht zum bloßen Kürzen eines einzelnen fertigen
-  Videos und nicht für YouTube- oder Kick-VODs.
-allowed-tools: Bash(uv run *) PowerShell(uv run *)
+  Use when turning Twitch VODs into vertical Shorts. Not for a single trim.
+metadata:
+  author: Moritz
+  tags: [twitch, clips, shorts, video]
+allowed-tools: Bash(uv run *) PowerShell(uv run *) Read Write WebFetch env
 ---
 
 # Clip-Pipeline
 
-Ein Einstieg. Zwei Ordner neben dieser Datei:
+## Purpose
+Ein Einstieg für den ganzen Weg: Highlights in Twitch-VODs, eigenen Aufnahmen und, nur auf ausdrücklichen Wunsch, in einem laufenden Twitch-Stream finden, daraus vertikale Kurzclips schneiden und sie auf YouTube, TikTok, Instagram, Snapchat und X posten. Auch auf Englisch und ohne die Wörter Skill oder ffmpeg. Live-Aufnahme nur auf ausdrücklichen Wunsch. Nicht zum bloßen Kürzen eines einzelnen fertigen Videos und nicht für YouTube- oder Kick-VODs.
+
+## Prerequisites
+uv, ffmpeg und die Skripte unter `<skill>`. Posten braucht eine einmalige Anmeldung im Browser. Keine Passwörter erfragen oder eintippen.
+
+## Instructions
+`<root>` ist der Ordner dieser Datei. `<skill>` ist `<root>/clip-forge/skills/clipping-streams`. Beide Namen sind Ordner, keine Shell-Variablen. Pfade mit `#` immer in Anführungszeichen setzen.
+
+Zwei Ordner neben dieser Datei:
 
 | Ordner | Was |
 |---|---|
-| [clip-forge](clip-forge) | Schneiden. Skill und Skripte in `clip-forge/skills/clipping-streams` |
-| [content-syndicator](content-syndicator) | Posten. Liest `~/clips/out/<vod-id>/clipXX.mp4` und die `clipXX.txt` daneben |
-
-## Pfade
-
-`<root>` ist der Ordner dieser Datei:
-
-- macOS (Moritz' Mac): `/Users/moritz/Documents/#code/clip-pipeline`
-- Windows: `C:\Users\morit\Documents\.code\clip-pipeline`
-
-`<skill>` ist `<root>/clip-forge/skills/clipping-streams`. Wo in der Unter-SKILL.md
-`${CLAUDE_SKILL_DIR}` steht, ist genau dieser Pfad gemeint. Ist die Variable leer
-(z.B. in Hermes), den absoluten Pfad einsetzen. Pfade immer in Anführungszeichen,
-weil `#code` sonst in der Shell als Kommentar gelesen wird.
-
-## Ablauf
+| [clip-forge](clip-forge/README.md) | Schneiden. Skill und Skripte in `clip-forge/skills/clipping-streams` |
+| [content-syndicator](content-syndicator/SKILL.md) | Posten. Liest `~/clips/out/<vod-id>/clipXX.mp4` und die `clipXX.txt` daneben |
 
 1. Lies `<skill>/SKILL.md` und folge ihr bis `log_clip`. Keine eigenen ffmpeg- oder yt-dlp-Befehle. Die harten Regeln dort gelten, außer der Satz zum Selbst-Posten: gepostet wird nur über content-syndicator.
 2. Übergib Pfad, Hook, Titel und den Hinweis auf `clipXX.txt`.
 3. Posten nur, wenn der User es in dieser Unterhaltung ausdrücklich will. Sonst den Befehl nur zeigen.
 
-Skripte zum Schneiden:
+Skripte zum Schneiden, jedes über run_script:
 
 ```bash
 uv run --quiet "<skill>/scripts/<name>.py" ...
@@ -53,7 +44,7 @@ uv run scripts/post_clips.py --vod-id <vod-id>
 uv run scripts/post_clips.py --vod-id <vod-id> --publish
 ```
 
-Browser einmal anmelden. `login.py` startet Google Chrome (sonst Edge oder Brave, oder `CLIPS_BROWSER`) ganz normal, ohne Automatisierung, mit dem eigenen Profil unter `~/clips/state/browser` und je einem Tab pro Plattform. Der User meldet sich selbst an und beendet den Browser mit Cmd+Q. Keine Passwörter erfragen oder eintippen. Playwright-Chromium nicht zum Anmelden nehmen: Google lehnt dort ab („Dieser Browser ist unter Umständen nicht sicher“).
+Browser einmal anmelden. `login.py` startet Google Chrome (sonst Edge oder Brave, oder `CLIPS_BROWSER`) ganz normal, ohne Automatisierung, mit dem eigenen Profil unter `~/clips/state/browser` und je einem Tab pro Plattform. Der User meldet sich selbst an und beendet den Browser mit Cmd+Q. Playwright-Chromium nicht zum Anmelden nehmen: Google lehnt dort ab („Dieser Browser ist unter Umständen nicht sicher“).
 
 ```bash
 cd "<root>/content-syndicator"
@@ -61,9 +52,12 @@ uv run scripts/login.py            # Fenster zum Anmelden, wartet bis Cmd+Q
 uv run scripts/login.py --check    # ohne Fenster: Exit 0 = alle angemeldet, 5 = "missing" nennt die fehlenden
 ```
 
-Vor jedem `--publish` erst `--check`. Fehlt eine Plattform, dem User sagen, dass er sich am Mac mit `login.py` anmelden muss, und diese Plattform per `--platforms` weglassen. Über WhatsApp geht die Anmeldung nicht.
+Vor jedem `--publish` erst `--check`. Fehlt eine Plattform, dem User sagen, dass er sich am Rechner mit `login.py` anmelden muss, und diese Plattform per `--platforms` weglassen. Über WhatsApp geht die Anmeldung nicht.
 
 YouTube, TikTok und Instagram bekommen den Text aus ihrem Block in `clipXX.txt`. X und Snapchat bekommen den TikTok-Text, gekürzt. Das Voice-over-Skript wird nicht gepostet und nicht ins Video gemischt.
+
+## Examples
+Schneiden, dann nur zeigen: `uv run scripts/post_clips.py --vod-id <vod-id>` im Ordner content-syndicator. Hochladen erst nach ausdrücklichem Wunsch mit `--publish`.
 
 ## Wenn post_clips.py scheitert (Stand Nov 2026)
 
@@ -75,7 +69,13 @@ Per Hand posten nur, wenn der User es ausdrücklich erlaubt. Dann Chrome mit dem
 - X: Klick auf `tweetButton` im Dialog funktioniert. Danach kann das Modal „Unlock more on X“ (graduated-access) kommen, der Post ist trotzdem raus. Video-Posts erscheinen erst nach der Verarbeitung (1–2 min) im Profil: vor einem zweiten Versuch mindestens 2 min warten, sonst entsteht ein Duplikat. Am Profil prüfen.
 - Läuft Chrome per CDP mit dem Profil, scheitern `login.py --check` und `post_clips.py` („Profil ist schon in einem offenen Fenster in Benutzung“). Dann YouTube auch per Hand: `studio.youtube.com/channel/<id>/videos/upload?d=ud` öffnet direkt den Upload-Dialog.
 - Snapchat (profile.snapchat.com → „Post to Snapchat“ → Spotlight): scheitert mit `PERMISSION_DENIED: Organization not spend ready`. Das ist eine Konto-/Business-Einstellung, die der User selbst klären muss.
-- `references/platform-rules.md` fehlt in clip-forge. Captions nach dem Schema in clips.json schreiben.
+- Captions nach dem Schema in clips.json schreiben.
+
+## Troubleshooting
+Ein error von `login.py --check` oder ein fail von `post_clips.py` stoppt diese Plattform. Die Meldung nennen, die Plattform weglassen, den Rest nicht raten. Validierung der Clips bleibt bei clipping-streams, bis dort Exit 0 kommt.
+
+## Limitations
+Live-Aufnahme nur auf ausdrücklichen Wunsch. Kein YouTube-VOD, kein Kick-VOD, kein bloßes Kürzen einer einzelnen Datei. Die Browser-Anmeldung geht nur am Rechner selbst.
 
 ## Über Messenger (WhatsApp, Telegram, …)
 
@@ -87,24 +87,24 @@ Läuft die Session über ein Gateway, sieht der User kein Terminal:
 
 ## Einbinden
 
-Claude, ein Skill namens `clip-pipeline`:
+`<root>` ist der Ordner dieser Datei. Claude, ein Skill namens `clip-pipeline`:
 
 ```bash
-ln -s "/Users/moritz/Documents/#code/clip-pipeline" ~/.claude/skills/clip-pipeline
+ln -s "<root>" ~/.claude/skills/clip-pipeline
 ```
 
 ```powershell
-New-Item -ItemType Junction -Path "$HOME\.claude\skills\clip-pipeline" -Target "C:\Users\morit\Documents\.code\clip-pipeline"
+New-Item -ItemType Junction -Path "$HOME\.claude\skills\clip-pipeline" -Target "<root>"
 ```
 
 Hermes, derselbe Ordner. Danach neue Session oder `/reset`. Slash-Befehl: `/clip-pipeline`.
 
 ```bash
 mkdir -p ~/.hermes/skills/video
-ln -s "/Users/moritz/Documents/#code/clip-pipeline" ~/.hermes/skills/video/clip-pipeline
+ln -s "<root>" ~/.hermes/skills/video/clip-pipeline
 ```
 
 ```powershell
 New-Item -ItemType Directory -Force -Path "$HOME\.hermes\skills\video"
-New-Item -ItemType Junction -Path "$HOME\.hermes\skills\video\clip-pipeline" -Target "C:\Users\morit\Documents\.code\clip-pipeline"
+New-Item -ItemType Junction -Path "$HOME\.hermes\skills\video\clip-pipeline" -Target "<root>"
 ```

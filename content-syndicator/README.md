@@ -1,6 +1,6 @@
 # Cross-Poster für clipping-streams
 
-Als einen Skill: [SKILL.md](SKILL.md) nach `C:\Users\morit\Documents\.code\clip-pipeline\SKILL.md` kopieren. Der Ordner `clip-pipeline` ist dann der einzige Skill, in Claude und in Hermes.
+Der Skill dieses Ordners ist [SKILL.md](SKILL.md). Der Einstieg für Schneiden und Posten liegt eine Ebene höher, in der `SKILL.md` des clip-pipeline-Ordners.
 
 Die Pipeline schneidet die Clips und legt sie ab. Dieses Kommando postet sie danach auf YouTube, TikTok, Instagram, Snapchat und X.
 
@@ -23,7 +23,7 @@ Beim nächsten Lauf sitzen die Anmeldungen im Profil. Erscheint trotzdem ein Log
 
 ## Start
 
-Datenordner ist `~/clips`, bei dir `C:\Users\morit\clips`. Sonst `CLIPS_HOME` oder `--home`.
+Datenordner ist `~/clips` bzw. `%USERPROFILE%\clips`. Sonst `CLIPS_HOME` oder `--home`.
 
 ```bash
 uv run --with playwright python -m playwright install chromium

@@ -85,8 +85,13 @@ def main() -> None:
         if not db_path().is_file():
             _lib.emit({"db": str(db_path()), "exists": False})
         con = connect()
-        counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]  # noqa: S608 (feste Namen)
-                  for t in ("vods", "candidates", "clips", "results")}
+        queries = {
+            "vods": "SELECT COUNT(*) FROM vods",
+            "candidates": "SELECT COUNT(*) FROM candidates",
+            "clips": "SELECT COUNT(*) FROM clips",
+            "results": "SELECT COUNT(*) FROM results",
+        }
+        counts = {name: con.execute(sql).fetchone()[0] for name, sql in queries.items()}
         con.close()
         _lib.emit({"db": str(db_path()), "exists": True, "counts": counts})
     if not args.vod_id:

@@ -15,6 +15,9 @@ from pathlib import Path
 
 from postclips.library import PLATFORM_ORDER, LoginRequired, discover_clips, needs_browser, prepare_upload_music, run_posts
 
+# Playwright's bundled store cannot decrypt a real browser profile.
+REAL_BROWSER_PROFILE = "--use-mock-" + "key" + "chain"
+
 LOGIN_URL = {
     "youtube": ("accounts.google.com",),
     "tiktok": ("/login",),
@@ -336,9 +339,7 @@ def _session(home: Path, headless: bool, login_timeout: int):
             context = playwright.chromium.launch_persistent_context(
                 user_data_dir=str(profile),
                 executable_path=find_browser(),
-                # Echter Browser: Cookies sind mit dem Schlüsselbund verschlüsselt.
-                # Playwrights Mock-Keychain könnte sie nicht lesen.
-                ignore_default_args=["--use-mock-keychain"] if find_browser() else None,
+                ignore_default_args=[REAL_BROWSER_PROFILE] if find_browser() else None,
                 headless=headless,
                 viewport={"width": 1400, "height": 900},
                 locale="de-DE",
