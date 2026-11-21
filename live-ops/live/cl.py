@@ -173,20 +173,12 @@ def record_result(vod, clip, platform, views, shares=0, comments=0, hours_after=
 def ingest_stats(vod, clip):
     """Eigene Zahlen aus out/<vod>/<clip>.stats.json nach clips.db.
 
-    Chrome auf Port 9333 wird nur gemerkt. Es wird kein fremder Feed gelesen.
     Fehlt die Datei, bleibt der Stand awaiting_stats und der nächste Lauf geht weiter.
     """
-    import urllib.request
     home = os.environ.get("CLIPS_HOME", os.path.expanduser("~/clips"))
     path = os.path.join(home, "out", vod, f"{clip}.stats.json")
-    chrome = False
-    try:
-        urllib.request.urlopen("http://127.0.0.1:9333/json/version", timeout=2)
-        chrome = True
-    except Exception:
-        chrome = False
-    if not os.path.exists(path):
-        return {"status": "awaiting_stats", "chrome": chrome}
+    if not os.path.isfile(path):
+        return {"status": "awaiting_stats"}
     data = json.load(open(path))
     done = []
     for platform, stats in data.items():
@@ -195,7 +187,7 @@ def ingest_stats(vod, clip):
         record_result(vod, clip, platform, stats.get("views") or 0, stats.get("shares") or 0,
                       stats.get("comments") or 0, stats.get("hours_after") or 24)
         done.append(platform)
-    return {"status": "recorded", "platforms": done, "chrome": chrome}
+    return {"status": "recorded", "platforms": done}
 
 
 def rate_rest(s=1, p=1, r=1, note='gelesen, ohne Moment'):

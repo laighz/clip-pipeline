@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "clip-forge" / "skills" / "clipping-streams" / "scripts"
@@ -63,11 +64,27 @@ def discover(args: argparse.Namespace) -> tuple[int, dict, str]:
     return run(cmd)
 
 
+def clip_download_url(url: str) -> str:
+    """Nur eine https-URL von Twitch, neu zusammengesetzt, ohne Query und Zugangsdaten."""
+    parsed = urlsplit(str(url).strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or host not in {"clips.twitch.tv", "www.twitch.tv"}:
+        raise ValueError("nur https-URLs von clips.twitch.tv")
+    if parsed.username or parsed.password or not parsed.path or ".." in parsed.path:
+        raise ValueError("Clip-URL ungültig")
+    return "https://" + host + parsed.path
+
+
 def download(url: str, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    safe = clip_download_url(url)
+    root = clips_home().resolve()
+    target = dest.resolve()
+    if target != root and root not in target.parents:
+        raise ValueError("Ziel liegt ausserhalb des Clip-Ordners")
+    target.parent.mkdir(parents=True, exist_ok=True)
     ytdlp = shutil.which("yt-dlp") or "yt-dlp"
     proc = subprocess.run([ytdlp, "-f", "bv*+ba/b", "--no-playlist", "--no-progress",
-                           "-o", str(dest), url], capture_output=True, text=True, timeout=600)
+                           "-o", str(target), safe], capture_output=True, text=True, timeout=600)
     if proc.returncode != 0 or not dest.is_file():
         raise RuntimeError((proc.stderr or proc.stdout or "Download fehlgeschlagen")[-400:])
 
@@ -142,7 +159,7 @@ def evaluate(vod_id: str, cand: str, views: float) -> dict:
 
 
 def publish(vod_id: str) -> tuple[int, str]:
-    env = os.environ.copy()
+    env = {key: os.environ[key] for key in ("PATH", "HOME", "LANG", "USER") if key in os.environ}
     env["SKIP"] = "YT|X|SC"
     proc = subprocess.run(["bash", str(POST), vod_id, "clip01"], capture_output=True, text=True,
                           timeout=7200, env=env)

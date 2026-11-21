@@ -1090,10 +1090,22 @@ def t_game_cycle(ctx: Ctx) -> str:
 
     proc = subprocess.run([sys.executable, str(TESTS.parents[3] / "live-ops" / "live" / "game_clip_cycle.py"),
                            "--dry-run", "--fixture", str(fix), "--now", str(now)],
-                          capture_output=True, text=True, timeout=60, env=os.environ.copy())
+                          capture_output=True, text=True, timeout=60)
     expect(proc.returncode == 0, proc.stderr[-300:] or proc.stdout[-300:])
     cycle = json.loads(proc.stdout.strip().splitlines()[-1])
     expect(cycle.get("dry_run") and cycle["candidates"][0]["id"] == "shortclip", f"Lauf: {cycle}")
+    url_probe = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import game_clip_cycle as g\n"
+        "assert g.clip_download_url('https://clips.twitch.tv/AbC?q=1') == 'https://clips.twitch.tv/AbC'\n"
+        "try:\n    g.clip_download_url('http://clips.twitch.tv/AbC')\nexcept ValueError:\n    pass\n"
+        "else:\n    raise SystemExit('http wurde akzeptiert')\n"
+        "try:\n    g.clip_download_url('https://evil.example/AbC')\nexcept ValueError:\n    pass\n"
+        "else:\n    raise SystemExit('fremde Hosts wurden akzeptiert')\n"
+    )
+    checked = subprocess.run([sys.executable, "-c", url_probe,
+                              str(TESTS.parents[3] / "live-ops" / "live")],
+                             capture_output=True, text=True)
+    expect(checked.returncode == 0, checked.stderr[-300:] or checked.stdout[-300:])
     expect(not (ctx.home / "raw").exists(), "dry-run hat heruntergeladen")
     os.environ.pop("CLIPS_LIVE", None)
     return "VI bleibt VI, V fliegt raus, Warmup deckelt Instagram, dry-run postet nicht"
