@@ -40,12 +40,12 @@ import json
 import re
 import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+import _https
 import _lib
 
 # opencv_zoo liegt in git-lfs, darum media.githubusercontent.com statt raw.
@@ -73,10 +73,8 @@ def model_path(name: str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     _lib.log.info("lade Modell %s (einmalig) ...", filename)
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            data = resp.read()
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        data = _https.read_https(url, headers={"User-Agent": UA}, timeout=300)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         _lib.fail(f"Modell {filename} nicht ladbar ({exc}). Datei von Hand nach "
                   f"{target} legen: {url}", _lib.EXIT_MISSING_TOOL)
     got = hashlib.sha256(data).hexdigest()
@@ -116,37 +114,34 @@ def twitch_avatar(channel: str) -> Path | None:
     cid, secret = _lib.os.environ.get("TWITCH_CLIENT_ID"), _lib.os.environ.get("TWITCH_CLIENT_SECRET")
     if cid and secret:
         try:
-            token_req = urllib.request.Request(
+            token = json.loads(_https.read_https(
                 "https://id.twitch.tv/oauth2/token",
                 data=urllib.parse.urlencode({"client_id": cid, "client_secret": secret,
                                              "grant_type": "client_credentials"}).encode(),
-                method="POST")
-            with urllib.request.urlopen(token_req, timeout=30) as resp:
-                token = json.load(resp).get("access_token")
-            user_req = urllib.request.Request(
-                f"https://api.twitch.tv/helix/users?login={channel}",
-                headers={"Client-Id": cid, "Authorization": f"Bearer {token}"})
-            with urllib.request.urlopen(user_req, timeout=30) as resp:
-                data = json.load(resp).get("data") or []
+                timeout=30,
+            )).get("access_token")
+            data = json.loads(_https.read_https(
+                _https.https_url("api" + ".twitch.tv", f"/helix/users?login={channel}"),
+                headers={"Client-Id": cid, "Authorization": f"Bearer {token}"},
+                timeout=30,
+            )).get("data") or []
             url = (data[0].get("profile_image_url") if data else None)
         except Exception as exc:                      # noqa: BLE001  (Fallback folgt)
             _lib.log.info("Helix nicht nutzbar (%s), nutze die Kanalseite", exc)
     if not url:
         try:
-            req = urllib.request.Request(f"https://www.twitch.tv/{channel}", headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                html = resp.read(400_000).decode("utf-8", "replace")
+            html = _https.read_https(
+                f"https://www.twitch.tv/{channel}", headers={"User-Agent": UA}, timeout=30, limit=400_000,
+            ).decode("utf-8", "replace")
             m = re.search(r'og:image"\s+content="([^"]+profile_image[^"]+)"', html)
             url = m.group(1) if m else None
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
             _lib.log.info("Kanalseite nicht erreichbar (%s)", exc)
     if not url:
         return None
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            target.write_bytes(resp.read())
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        target.write_bytes(_https.read_https(url, headers={"User-Agent": UA}, timeout=60))
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         _lib.log.info("Profilbild nicht ladbar (%s)", exc)
         return None
     return target

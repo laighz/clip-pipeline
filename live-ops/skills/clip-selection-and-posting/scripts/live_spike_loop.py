@@ -21,7 +21,10 @@ Optionen:
 Start als EIN Hintergrundprozess mit notify (pro Kanal einer):
   python3 live_spike_loop.py <rec_id> [--max-hours 2] [--exit-on-ready] [--follow-restarts]
 """
-import json, os, subprocess, sys, time
+import json, os, sys, time
+from pathlib import Path
+
+import argv_run
 
 R = sys.argv[1]
 argv = sys.argv
@@ -31,7 +34,7 @@ exit_on_ready = '--exit-on-ready' in argv
 follow = '--follow-restarts' in argv
 channel = R.rsplit('-', 2)[0]
 H = os.path.expanduser('~/.hermes/cache/scratch/')
-SKILL = '/Users/moritz/Documents/#code/clip-pipeline/clip-forge/skills/clipping-streams'
+SKILL = str(Path(__file__).resolve().parents[4] / "clip-forge" / "skills" / "clipping-streams")
 start = time.time()
 stopped = False
 
@@ -55,8 +58,7 @@ def try_restart():
     """record_start bis zum Erfolg oder offline_min; gibt neue rec_id oder None."""
     t0 = time.time()
     while time.time() - t0 < offline_min * 60:
-        p = subprocess.run(['uv', 'run', '--quiet', f'{SKILL}/scripts/record_start.py', '--channel', channel],
-                           capture_output=True, text=True)
+        p = argv_run.run(['uv', 'run', '--quiet', f'{SKILL}/scripts/record_start.py', '--channel', channel])
         for l in p.stdout.splitlines():
             if l.strip().startswith('{'):
                 d = json.loads(l)
@@ -69,18 +71,16 @@ def try_restart():
 
 while True:
     if max_h and not stopped and time.time() - start > max_h * 3600:
-        subprocess.run(['uv', 'run', '--quiet', f'{SKILL}/scripts/record_stop.py', '--channel', channel],
-                       capture_output=True, text=True)
+        argv_run.run(['uv', 'run', '--quiet', f'{SKILL}/scripts/record_stop.py', '--channel', channel])
         stopped = True
     ns = [json.loads(l)['n'] for l in open(F) if l.strip()]
     n = max(ns) if ns else 0
     timeout = 540
     if max_h and not stopped:
         timeout = max(30, min(540, int(max_h * 3600 - (time.time() - start))))
-    proc = subprocess.run(
+    proc = argv_run.run(
         ['uv', 'run', '--quiet', f'{SKILL}/scripts/record_status.py', '--rec-id', R,
-         '--wait-spike', '--after', str(n), '--timeout', str(timeout)],
-        capture_output=True, text=True)
+         '--wait-spike', '--after', str(n), '--timeout', str(timeout)])
     lines = [l for l in proc.stdout.splitlines() if l.strip().startswith('{')]
     if not lines:
         time.sleep(30)

@@ -16,7 +16,7 @@ if not pg.locator('div[role=dialog] input[type=file]').count():
             if pg.get_by_text('Post',exact=True).count() and not pg.locator('div[role=dialog] input[type=file]').count():
                 pg.get_by_text('Post',exact=True).first.click(); pg.wait_for_timeout(2500)
             break
-pg.locator('div[role=dialog] input[type=file]').first.set_input_files(f'/Users/moritz/clips/out/{vod}/{clip}.mp4')
+pg.locator('div[role=dialog] input[type=file]').first.set_input_files(os.path.expanduser(f'~/clips/out/{vod}/{clip}.mp4'))
 pg.wait_for_timeout(8000)
 ok=pg.get_by_role('button',name='OK')
 if ok.count(): ok.first.click(); pg.wait_for_timeout(1000)
@@ -27,7 +27,7 @@ for i in range(2):
     dlg.get_by_role('button',name='Next').first.click(); pg.wait_for_timeout(2500)
 ed=pg.locator('div[role=dialog] div[contenteditable="true"]').first
 ed.click()
-txt=open(f'/Users/moritz/clips/out/{vod}/{clip}.txt').read().split('--- INSTAGRAM ---')[1].split('---')[0].strip()
+txt=open(os.path.expanduser(f'~/clips/out/{vod}/{clip}.txt')).read().split('--- INSTAGRAM ---')[1].split('---')[0].strip()
 pg.keyboard.type(txt); pg.wait_for_timeout(1500)
 dlg.get_by_text(re.compile(r'^live\.?spiked(26)?$')).first.click(); pg.wait_for_timeout(1000)
 print('caption:',ed.inner_text())

@@ -24,6 +24,10 @@ Pipeline per run:
 Usage: janitor.py [--dry-run] [--restore REC]
 """
 import json, os, shutil, sys, time, glob
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "clip-forge/skills/clipping-streams/scripts"))
+import _https
 
 RAW = os.path.expanduser('~/clips/raw/live')
 WORK = os.path.expanduser('~/clips/work')
@@ -135,18 +139,20 @@ chan_last = {}
 for d in glob.glob(f'{RAW}/*'):
     fs = glob.glob(f'{d}/seg_*.ts') or [f'{d}/segments.csv']*os.path.exists(f'{d}/segments.csv')
     if fs: ch = os.path.basename(d).rsplit('-', 2)[0]; chan_last[ch] = max(chan_last.get(ch, 0), *map(os.path.getmtime, fs))
-import urllib.request
 def net_ok():
     # our own internet: need 2 of 3 well-known hosts reachable
     ok = 0
     for u in ('https://www.twitch.tv', 'https://www.google.com', 'https://1.1.1.1'):
-        try: urllib.request.urlopen(urllib.request.Request(u, method='HEAD'), timeout=6); ok += 1
-        except Exception: pass
+        try:
+            _https.read_https(u, method='HEAD', timeout=6)
+            ok += 1
+        except Exception:
+            pass
     return ok >= 2
 def twitch_offline(ch):
     # True only if Twitch explicitly says offline; None if unknown
     try:
-        r = urllib.request.urlopen(f'https://decapi.me/twitch/uptime/{ch}', timeout=8).read().decode().lower()
+        r = _https.read_https(f'https://decapi.me/twitch/uptime/{ch}', timeout=8).decode().lower()
     except Exception: return None
     if 'is offline' in r: return True
     if 'hour' in r or 'minute' in r or 'second' in r: return False

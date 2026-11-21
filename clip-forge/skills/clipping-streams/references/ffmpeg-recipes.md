@@ -29,7 +29,7 @@ Danach immer `setsar=1,fps=<fps>,format=yuv420p`.
 ## Pfade im Filter (Windows)
 Der `subtitles=`-Filter braucht zweifach escapte Pfade (Doku "Notes on filtergraph escaping"):
 Ebene 1 `\ ' :` escapen, Ebene 2 `\ ' [ ] , ;` escapen (inkl. Backslashes aus Ebene 1).
-`C:\Users\x\a.ass` -> `C\\:/Users/x/a.ass`. Das macht `_lib.escape_filter_path`, getestet mit
+`C:\clips\a.ass` -> `C\\:/clips/a.ass`. Das macht `_lib.escape_filter_path`, getestet mit
 Leerzeichen, Apostroph, eckigen Klammern und Komma im Pfad.
 
 ## Untertitel (assets/caption-style.ass)

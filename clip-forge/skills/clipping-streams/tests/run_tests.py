@@ -34,13 +34,14 @@ class Ctx:
     def __init__(self, home: Path, fixtures: Path) -> None:
         self.home = home
         self.fixtures = fixtures
-        self.env = dict(os.environ, CLIPS_HOME=str(home), PYTHONUTF8="1")
+        os.environ["CLIPS_HOME"] = str(home)
+        os.environ["PYTHONUTF8"] = "1"
         self.uv = shutil.which("uv") or "uv"
 
     def run(self, script: str, *args: str, timeout: float = 900) -> tuple[int, dict, str]:
         cmd = [self.uv, "run", "--quiet", str(SCRIPTS / script), *args]
         proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", env=self.env, timeout=timeout)
+                              errors="replace", timeout=timeout)
         lines = [ln for ln in proc.stdout.strip().splitlines() if ln.strip()]
         try:
             data = json.loads(lines[-1]) if lines else {}
@@ -521,7 +522,7 @@ def t_detect_facecam(ctx: Ctx) -> str:
              "print(json.dumps({'rect': [_lib.is_rect(v) for v in ([0,0,10,10],[0,0,0,10],[1,2,3],'x',[True,0,1,1])],"
              "'offsets': d.sample_offsets(5), 'median': d.median_rect([[0,0,10,10],[2,0,10,10],[100,0,10,10]])}))")
     proc = subprocess.run([ctx.uv, "run", "--quiet", "--with", "numpy", "python", "-c", probe, str(SCRIPTS)],
-                          capture_output=True, text=True, encoding="utf-8", env=ctx.env)
+                          capture_output=True, text=True, encoding="utf-8")
     expect(proc.returncode == 0, f"Probe scheitert: {proc.stderr[-300:]}")
     got = json.loads(proc.stdout.strip().splitlines()[-1])
     expect(got["rect"] == [True, False, False, False, False], f"is_rect falsch: {got['rect']}")
@@ -611,17 +612,22 @@ def t_log_clip(ctx: Ctx) -> str:
 def t_timeout_json(ctx: Ctx) -> str:
     """Regression: ein Timeout in _lib.run warf TimeoutExpired -> Traceback statt einer JSON-Zeile."""
     slow = [sys.executable, "-c", "import time; time.sleep(5)"]
-    probe = ("import sys, json; sys.path.insert(0, sys.argv[1]); import _lib; _lib.setup('probe');"
-             "p = _lib.run(json.loads(sys.argv[2]), timeout=0.5);"
-             "print(json.dumps({'rc': p.returncode, 'err': p.stderr[-80:]}))")
+    half = "0.5"
+    probe = (
+        "import sys, json; sys.path.insert(0, sys.argv[1]); import _lib; _lib.setup('probe');"
+        "p = _lib.run(json.loads(sys.argv[2]), timeout=" + half + ");"
+        "print(json.dumps({'rc': p.returncode, 'err': p.stderr[-80:]}))"
+    )
     proc = subprocess.run([sys.executable, "-c", probe, str(SCRIPTS), json.dumps(slow)], capture_output=True,
                           text=True, encoding="utf-8", timeout=60)
     expect(proc.returncode == 0 and "Traceback" not in proc.stderr, f"Timeout wirft noch: {proc.stderr[-300:]}")
     res = json.loads(proc.stdout.strip().splitlines()[-1])
     expect(res["rc"] == 124 and "Timeout" in res["err"], f"Timeout-Ergebnis falsch: {res}")
     # check=True: genau eine JSON-Zeile mit ok=false und Exit 1, kein Traceback
-    probe_check = ("import sys, json; sys.path.insert(0, sys.argv[1]); import _lib; _lib.setup('probe');"
-                   "_lib.run(json.loads(sys.argv[2]), timeout=0.5, check=True)")
+    probe_check = (
+        "import sys, json; sys.path.insert(0, sys.argv[1]); import _lib; _lib.setup('probe');"
+        "_lib.run(json.loads(sys.argv[2]), timeout=" + half + ", check=True)"
+    )
     proc = subprocess.run([sys.executable, "-c", probe_check, str(SCRIPTS), json.dumps(slow)], capture_output=True,
                           text=True, encoding="utf-8", timeout=60)
     lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
@@ -637,9 +643,16 @@ def t_status(ctx: Ctx) -> str:
     expect(vod and vod["rendered"] == 2 and vod["next"] == "verify_clip/log_clip", f"VOD-Stand falsch: {vod}")
     expect(STREAMER in data["config"]["streamers"] and STREAMER not in data["config"]["facecam_offen"],
            f"Config-Stand falsch: {data['config']}")
-    env = dict(ctx.env, CLIPS_HOME=str(ctx.home / "gibtsnicht"))
-    proc = subprocess.run([ctx.uv, "run", "--quiet", str(SCRIPTS / "status.py")], capture_output=True,
-                          text=True, encoding="utf-8", env=env)
+    saved_home = os.environ.get("CLIPS_HOME")
+    os.environ["CLIPS_HOME"] = str(ctx.home / "gibtsnicht")
+    try:
+        proc = subprocess.run([ctx.uv, "run", "--quiet", str(SCRIPTS / "status.py")], capture_output=True,
+                              text=True, encoding="utf-8")
+    finally:
+        if saved_home is None:
+            os.environ.pop("CLIPS_HOME", None)
+        else:
+            os.environ["CLIPS_HOME"] = saved_home
     expect(proc.returncode == 0, "status.py muss auch ohne Datenordner Exit 0 liefern")
     return f"Stand: {vod['rendered']} Clips, nächster Schritt '{vod['next']}'"
 
@@ -725,7 +738,7 @@ class FakeIrc:
 def live_run(ctx: Ctx, script: str, *args: str, timeout: float = 300) -> tuple[int, dict, str]:
     cmd = [ctx.uv, "run", "--quiet", str(LIVE_SCRIPTS / script), *args]
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          env=ctx.env, timeout=timeout)
+                          timeout=timeout)
     lines = [ln for ln in proc.stdout.strip().splitlines() if ln.strip()]
     try:
         data = json.loads(lines[-1]) if lines else {}
@@ -925,7 +938,7 @@ def main() -> None:
     if not (fixtures / "vod.mp4").exists():
         print(f"[tests] erzeuge Testmaterial in {fixtures}", file=sys.stderr)
         subprocess.run([ctx.uv, "run", "--quiet", str(TESTS / "make_fixtures.py"), "--out", str(fixtures)],
-                       check=True, env=ctx.env)
+                       check=True)
 
     results = []
     for name, func in STAGES.items():

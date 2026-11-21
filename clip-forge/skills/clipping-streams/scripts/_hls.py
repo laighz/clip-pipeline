@@ -12,10 +12,10 @@ import shutil
 import subprocess
 import tempfile
 import time
-import urllib.request
 from pathlib import Path
 from urllib.parse import urljoin
 
+import _https
 import _lib
 
 WORKERS = 16
@@ -39,8 +39,7 @@ def _get(url: str, timeout: int = 60, tries: int = 4) -> bytes:
     last: Exception | None = None
     for i in range(tries):
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout) as r:
-                return r.read()
+            return _https.read_https(url, headers=UA, timeout=timeout)
         except Exception as e:  # noqa: BLE001 - Netzfehler jeder Art -> erneut versuchen
             last = e
             time.sleep(1 + i)

@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 from typing import Any, NoReturn
 
+import _proc
+
 # ---------------------------------------------------------------- Exit-Codes
 EXIT_OK = 0
 EXIT_ERROR = 1          # Laufzeitfehler (Download, ffmpeg, ...)
@@ -266,15 +268,7 @@ def run(cmd: list[str], *, check: bool = False, capture: bool = True,
     """
     log.debug("run: %s", " ".join(cmd))
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=capture,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            cwd=cwd,
-        )
+        proc = _proc.execute(cmd, capture=capture, timeout=timeout, cwd=cwd)
     except subprocess.TimeoutExpired as exc:
         def as_text(value: Any) -> str:
             if isinstance(value, bytes):

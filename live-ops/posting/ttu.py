@@ -1,5 +1,5 @@
 from h import *
-import sys
+import os, sys
 vod,clip=sys.argv[1],sys.argv[2]
 p,b,ctx=connect()
 pg=get_page(ctx,'tiktok')
@@ -11,7 +11,7 @@ if d.count():
     c=pg.get_by_role('button',name='Discard')
     if c.count(): c.last.click()
     pg.wait_for_timeout(1500)
-pg.locator('input[type=file]').first.set_input_files(f'/Users/moritz/clips/out/{vod}/{clip}.mp4')
+pg.locator('input[type=file]').first.set_input_files(os.path.expanduser(f'~/clips/out/{vod}/{clip}.mp4'))
 pg.wait_for_timeout(15000)
 for n in ['Cancel','Got it']:
     x=pg.get_by_role('button',name=n)
@@ -19,7 +19,7 @@ for n in ['Cancel','Got it']:
 ed=pg.locator('div[contenteditable="true"]').first
 ed.scroll_into_view_if_needed(); ed.click()
 pg.keyboard.press('Meta+A'); pg.keyboard.press('Backspace')
-txt=open(f'/Users/moritz/clips/out/{vod}/{clip}.txt').read().split('--- TIKTOK ---')[1].split('---')[0].strip()
+txt=open(os.path.expanduser(f'~/clips/out/{vod}/{clip}.txt')).read().split('--- TIKTOK ---')[1].split('---')[0].strip()
 for w in txt.split(' '):
     pg.keyboard.type(w)
     if w[:1] in '#@': pg.wait_for_timeout(1200)

@@ -1,0 +1,8 @@
+# Aufräumen
+
+`<root>` ist das clip-pipeline-Repo, der Ordner mit `clip-forge` und `live-ops`.
+
+- „Temp-Dateien aufräumen“ heißt: abgeleitete Daten löschen, die sich neu erzeugen lassen (`~/clips/raw/<vod>/sections`, Screenshots und Standbilder im Scratch-Ordner). Rohaufnahmen (`raw/<vod>/audio*`, `raw/live/<rec>`) und `work/<vod>` nur nach ausdrücklicher Zustimmung löschen. Dem User vorher die Größen nennen, der größte Brocken ist meist die Live-Aufnahme (~3 GB/h).
+- Fordert der User ausdrücklich „lösch alles älter als 24 h“ oder „die Aufnahmen von gestern“, ist das die Zustimmung. Ordner nach Alter der neuesten Datei (`find <dir> -type f -exec stat -f %m {} +`) bzw. nach dem Datum in der rec_id (`<kanal>-YYYYMMDD-HHMMSS`) wählen und in ALLEN drei Ablagen löschen: `~/clips/raw/live/<rec>` (Videosegmente), `~/clips/raw/<rec>` (Tonspur/Signale der Live-Aufnahme, liegt direkt unter `raw/`, nicht unter `live/`) und `~/clips/trash/<rec>`. Mit expliziten Ordnernamen löschen (zsh-Wildcard ohne Treffer bricht sonst die Kette ab). Ausnehmen: laufende Aufnahmen (Datum von heute), `raw/manual` (gesicherte Ausschnitte) und VOD-Ordner `raw/<vod-id>`, außer er nennt sie. Danach freigegebene GB und `df -h` nennen und sagen, was stehen blieb.
+- Nie löschen: `~/clips/out/` (fertige Clips), `~/clips/state/browser` (Login-Profil für alle Plattformen), `models/`, `bin/`, `clips.db`.
+- `rm -rf` umgeht den Papierkorb. „Papierkorb leeren“ ist ein eigener Schritt (`osascript` → Finder `empty trash`). Ein Fehler -128 kann trotzdem einen leeren Papierkorb bedeuten, deshalb danach `count of items of trash` prüfen.
