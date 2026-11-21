@@ -185,6 +185,16 @@ Werbung herausschneiden.
 Offensichtliche Whisper-Fehler (Namen, Emotes) vor dem Rendern im Transkript
 korrigieren. Das Original daneben als `.orig.json` sichern. Hooks bei eigenen
 Aufnahmen in der Ich- oder Du-Form, bei fremden Streams in der dritten Person.
+Hook und Captions bleiben ohne den Namen.
+
+Vor dem ersten Titel eines Streamers einmal im Web nach dem Namen suchen, den
+die Community benutzt (eine Suche, z. B. „montanablack Spitzname“). Derselbe
+Treffer gilt für die übrigen Clips dieses Streamers in dem Lauf. Die Überschrift
+(`title`) nimmt genau diesen Namen: Monte, nicht Montana, nicht der Login
+`montanablack88`, nicht „er“, „sie“ oder „der Streamer“. Liefert die Suche
+nichts Brauchbares, den kurzen Anzeigenamen nehmen, nicht den Login. „Er“ oder
+„sie“ nur, wenn der Satz jemand anderen im Clip meint oder der Name im selben
+Titel schon steht. Pointe nicht verraten, `#Shorts` bleibt, höchstens 100 Zeichen.
 
 `clips.json` nach `~/clips/work/<vod-id>/clips.json`:
 
@@ -192,7 +202,7 @@ Aufnahmen in der Ich- oder Du-Form, bei fremden Streams in der dritten Person.
 {"vod_id": "<vod-id>", "clips": [{
   "id": "clip01", "candidate": "c231",
   "segments": [{"start": 230.0, "end": 232.5, "role": "cold_open"}, {"start": 221.5, "end": 242.0}],
-  "hook": "Damit hat keiner gerechnet", "title": "Er kann es nicht fassen #Shorts",
+  "hook": "Damit hat keiner gerechnet", "title": "Monte kann es nicht fassen #Shorts",
   "captions": {
     "youtube": "Text. Clip: @kanal auf Twitch #Shorts #twitch",
     "tiktok": "Text. Clip: @kanal auf Twitch #fyp",

@@ -21,7 +21,7 @@ Der Skill clipping-streams ist geladen. Live-Skripte liegen in `scripts/` dieses
 ## Instructions
 Jedes Skript über run_script starten: `uv run --quiet "<skill>/scripts/<name>.py"` oder `python3 "<skill>/scripts/<name>.py"`. `<skill>` ist der Ordner dieser Datei.
 
-Zuerst den Modus klären, dann auswählen, dann posten. Ein validate- oder evaluate-Fehler ist ein error: nicht posten, bis die Prüfung `decision: post` sagt.
+Zuerst den Modus klären, dann auswählen, dann posten. Ein validate- oder evaluate-Fehler ist ein error: nicht posten, bis die Prüfung `decision: post` sagt. YouTube-`title` nennt den Community-Namen, siehe [Posten](references/posting.md).
 
 ## Available Scripts
 | Script | Purpose | Arguments |

@@ -27,6 +27,7 @@
   - 6–12 Wörter, ein Satz oder zwei kurze. Neugier wecken, Pointe nie verraten.
   - verboten: „In diesem Clip“, „Dieser Moment“, „unglaublich“, „episch“, „Seht selbst“, „Ihr werdet nicht glauben“, Gedankenstriche, Dreierlisten, Fragen, die sofort selbst beantwortet werden
   - Beispiele: „Rohat findet am Strand was, womit echt keiner rechnet.“ / „Zarbex hat dreizehn Jahre gewartet. Jetzt geht’s los.“ / „Montana will kurz vorm Start nicht aufs Klo.“
+  - YouTube-Überschrift (`title`): vor dem ersten Titel einmal im Web den Community-Namen nachschlagen (eine Suche, z. B. „montanablack Spitzname“ → Monte, nicht Montana und nicht `montanablack88`). Denselben Treffer für die übrigen Clips dieses Streamers. Nicht „er“, „sie“ oder „der Streamer“. Nichts Brauchbares: kurzer Anzeigename, nicht der Login. „Er“ oder „sie“ nur für jemand anderen im Clip oder wenn der Name schon im Titel steht. Beispiel: „Monte kann es nicht fassen #Shorts“.
   - Zahlen ausschreiben, wenn TTS sie falsch liest; Anglizismen nur, wenn Streamer sie selbst so sagen
   - Jede VO anders formulieren, keine Satzschablone wiederholen
   ELEVENLABS_API_KEY kommt aus der Umgebung und wird nie im Chat abgefragt. Das ist eine bewusste Ausnahme von „keine eigenen ffmpeg-Befehle“.
