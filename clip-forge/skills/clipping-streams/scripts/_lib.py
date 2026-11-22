@@ -375,7 +375,7 @@ TRANSCRIPTION_DEFAULTS: dict[str, Any] = {
 }
 
 RENDER_DEFAULTS: dict[str, Any] = {
-    "encoder": "auto",            # auto | amf | x264
+    "encoder": "auto",            # auto | amf | videotoolbox | x264
     "width": 1080,
     "height": 1920,
     "fps": 30,
@@ -388,6 +388,7 @@ RENDER_DEFAULTS: dict[str, Any] = {
     "x264": {"crf": 20, "preset": "veryfast"},
     "amf": {"quality": "quality", "rc": "qvbr", "qvbr_quality_level": 22,
             "b": "10M", "maxrate": "16M"},
+    "videotoolbox": {"b": "8M"},
 }
 
 

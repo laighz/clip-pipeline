@@ -11,10 +11,11 @@ Pro Clip:
     blur (ganzes Bild mittig auf unscharfem Hintergrund) oder center (mittiger 9:16-Ausschnitt)
   - Untertitel: ASS aus assets/caption-style.ass, aktives Wort gelb; Hook oben
   - Ton: loudnorm I=-16, 48 kHz AAC
-  - Encoder: h264_amf (AMD) laut state/env.json, sonst libx264; scheitert AMF, automatisch libx264
+  - Encoder: h264_amf (Windows) oder h264_videotoolbox (macOS) laut state/env.json, sonst libx264.
+    Scheitert der Hardware-Encoder, automatisch libx264
 Ausgabe: out/<vod>/<clip>.mp4 + <clip>.json (Metadaten) + <clip>.txt (Captions zum Kopieren).
 
-Aufruf: render_clip.py --vod-id <id> [--clip clip01] [--encoder auto|amf|x264] [--force] [--dry-run]
+Aufruf: render_clip.py --vod-id <id> [--clip clip01] [--encoder auto|amf|videotoolbox|x264] [--force] [--dry-run]
 Erst validate_clips.py (Exit 0), dann --dry-run, dann echt.
 Exit: 0 ok, 1 ffmpeg-Fehler, 2 Eingabe ungültig, 4 Programm fehlt.
 """
@@ -123,6 +124,9 @@ def encoder_args(name: str, rconf: dict[str, Any]) -> list[str]:
         return ["-c:v", "h264_amf", "-quality", str(a.get("quality", "quality")), "-rc", str(a.get("rc", "qvbr")),
                 "-qvbr_quality_level", str(a.get("qvbr_quality_level", 22)), "-b:v", str(a.get("b", "10M")),
                 "-maxrate", str(a.get("maxrate", "16M"))]
+    if name == "videotoolbox":
+        v = rconf.get("videotoolbox") or {}
+        return ["-c:v", "h264_videotoolbox", "-b:v", str(v.get("b", "8M")), "-allow_sw", "0"]
     x = rconf.get("x264") or {}
     return ["-c:v", "libx264", "-preset", str(x.get("preset", "veryfast")), "-crf", str(x.get("crf", 20)),
             "-profile:v", "high"]
@@ -175,7 +179,8 @@ def main() -> None:
     )
     parser.add_argument("--vod-id", required=True)
     parser.add_argument("--clip", help="nur diese Clip-ID(s), kommagetrennt")
-    parser.add_argument("--encoder", choices=["auto", "amf", "x264"], help="überschreibt render.encoder")
+    parser.add_argument("--encoder", choices=["auto", "amf", "videotoolbox", "x264"],
+                        help="überschreibt render.encoder")
     parser.add_argument("--force", action="store_true", help="vorhandene MP4 neu rendern")
     parser.add_argument("--dry-run", action="store_true", help="nur ffmpeg-Befehle zeigen, nichts schreiben")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -262,9 +267,9 @@ def main() -> None:
         used = encoder
         proc = _lib.run(cmd, timeout=1800)
         fallback = None
-        if proc.returncode != 0 and encoder == "amf":
+        if proc.returncode != 0 and encoder in ("amf", "videotoolbox"):
             fallback = (proc.stderr or "").strip()[-300:]
-            log.warning("%s: h264_amf scheiterte, versuche libx264", cid)
+            log.warning("%s: %s scheiterte, versuche libx264", cid, encoder)
             used = "x264"
             cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, use_game, "x264")
             proc = _lib.run(cmd, timeout=1800)

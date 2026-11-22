@@ -124,14 +124,18 @@ def _weights(rows: list[tuple]) -> dict[str, dict[str, float]]:
 
 
 def write_result(con: sqlite3.Connection, vod_id: str, clip_id: str, platform: str,
-                 hours_after: int, views: int, shares: int, comments: int) -> None:
+                 hours_after: int, views: int, shares: int | None, comments: int | None,
+                 avg_watch_s: float | None = None, stayed_pct: float | None = None,
+                 follows: int | None = None) -> None:
+    """Schreibt eine Zeile in results. Fehlende Watch Time oder Absprung bleiben NULL."""
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     con.execute(
         """INSERT OR REPLACE INTO results
            (vod_id, clip_id, platform, hours_after, views, stayed_pct, avg_watch_s,
             shares, follows, comments, recorded_at)
-           VALUES (?,?,?,?,?,NULL,NULL,?,NULL,?,?)""",
-        (vod_id, clip_id, platform, hours_after, views, shares, comments, now),
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (vod_id, clip_id, platform, hours_after, views, stayed_pct, avg_watch_s,
+         shares, follows, comments, now),
     )
 
 
@@ -166,6 +170,10 @@ def main() -> None:
     parser.add_argument("--shares", type=int, default=0)
     parser.add_argument("--comments", type=int, default=0)
     parser.add_argument("--hours-after", type=int, default=24)
+    parser.add_argument("--avg-watch-s", type=float, default=None,
+                        help="mittlere Wiedergabezeit in Sekunden, sonst NULL")
+    parser.add_argument("--stayed-pct", type=float, default=None,
+                        help="Anteil, der dranbleibt, sonst NULL")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     _lib.setup("log_clip", args.verbose)
@@ -179,7 +187,7 @@ def main() -> None:
         con = connect()
         with con:
             write_result(con, args.vod_id, args.clip, args.platform, args.hours_after,
-                         args.views, args.shares, args.comments)
+                         args.views, args.shares, args.comments, args.avg_watch_s, args.stayed_pct)
         con.close()
         _lib.emit({"vod_id": args.vod_id, "clip": args.clip, "platform": args.platform,
                    "views": args.views, "shares": args.shares, "comments": args.comments})
