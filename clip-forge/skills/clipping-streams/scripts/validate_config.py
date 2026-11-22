@@ -131,8 +131,8 @@ def validate(cfg: dict[str, Any]) -> tuple[list[str], list[str]]:
             errors.append(f"transcription.whisper_cpp.model '{model}' existiert nicht")
 
     rd = cfg["render"]
-    if rd.get("encoder") not in ("auto", "amf", "x264"):
-        errors.append(f"render.encoder: auto, amf oder x264, gefunden {rd.get('encoder')!r}")
+    if rd.get("encoder") not in ("auto", "amf", "videotoolbox", "x264"):
+        errors.append(f"render.encoder: auto, amf, videotoolbox oder x264, gefunden {rd.get('encoder')!r}")
     if rd.get("layout") not in ("auto", "stack", "blur", "center"):
         errors.append(f"render.layout: auto, stack, blur oder center, gefunden {rd.get('layout')!r}")
     for key in ("width", "height", "facecam_height"):

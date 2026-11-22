@@ -29,7 +29,7 @@ Unbekannte Streamer laufen mit `defaults`. Prüfen: `validate_config.py [--strea
   validate_config prüft, dass Binary und Modell existieren. Siehe troubleshooting.md, Abschnitt whisper.cpp.
 
 ## render
-encoder (auto/amf/x264), width/height (gerade, 1080x1920), fps (30), layout (auto/stack/blur/center),
+encoder (auto/amf/videotoolbox/x264), width/height (gerade, 1080x1920), fps (30), layout (auto/stack/blur/center),
 facecam_height (608), hook_duration_s (4), words_per_caption (3), caption_uppercase (false),
 burn_credit (false), loudnorm ("I=-16:TP=-1.5:LRA=11"), audio_bitrate, x264 {crf, preset},
 amf {quality, rc, qvbr_quality_level, b, maxrate}.

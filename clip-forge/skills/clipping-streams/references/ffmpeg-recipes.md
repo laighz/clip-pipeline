@@ -22,6 +22,7 @@ Danach immer `setsar=1,fps=<fps>,format=yuv420p`.
 ## Encoder
 - AMD (RX 5700, getestet): `-c:v h264_amf -quality quality -rc qvbr -qvbr_quality_level 22 -b:v 10M -maxrate 16M`.
   Optionen prüfen: `ffmpeg -h encoder=h264_amf`. Scheitert AMF, nimmt render_clip automatisch libx264.
+- macOS: `check_env.py` vergleicht `h264_videotoolbox` (`-b:v 8M`) mit libx264. VideoToolbox gewinnt nur, wenn die SSIM mindestens 0.99 ist und der Lauf kürzer war. Scheitert er, nimmt render_clip libx264.
 - CPU: `-c:v libx264 -preset veryfast -crf 20 -profile:v high`.
 - Immer: `-pix_fmt yuv420p -r <fps> -c:a aac -b:a 160k -ar 48000 -movflags +faststart`.
 - Encoder erzwingen: `render_clip.py ... --encoder x264` oder `render.encoder: x264` in der Config.

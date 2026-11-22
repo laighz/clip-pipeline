@@ -72,8 +72,16 @@ def t_check_env(ctx: Ctx) -> str:
     code, data, _ = ctx.run("check_env.py", "--dry-run")
     expect(code == 0, f"dry-run exit {code}: {data.get('missing')}")
     expect(not env_json.exists(), "dry-run hat env.json geschrieben")
+    sample = ctx.home / "state" / "whisper_sample.json"
+    sample.parent.mkdir(parents=True, exist_ok=True)
+    sample.write_text('{"seconds": 0.2, "backend": "mlx-whisper"}', encoding="utf-8")
     code, data, _ = ctx.run("check_env.py")
     expect(code == 0 and env_json.exists(), "env.json fehlt nach echtem Lauf")
+    expect(data["whisper"]["changes_backend"] is False and data["whisper"]["backend_stays"] == "faster-whisper",
+           data.get("whisper"))
+    if data["encoder"].get("host") != "Darwin":
+        expect(data["encoder"]["chosen"] == "x264" and "kein macOS" in data["encoder"]["detail"], data["encoder"])
+        expect(data["whisper"]["measured"] is False and "sample" not in data["whisper"], data["whisper"])
     return f"encoder={data['encoder']['chosen']} ({data['encoder']['detail']})"
 
 
@@ -1106,9 +1114,147 @@ def t_game_cycle(ctx: Ctx) -> str:
                               str(TESTS.parents[3] / "live-ops" / "live")],
                              capture_output=True, text=True)
     expect(checked.returncode == 0, checked.stderr[-300:] or checked.stdout[-300:])
-    expect(not (ctx.home / "raw").exists(), "dry-run hat heruntergeladen")
+    expect(not list((ctx.home / "raw").glob("gta-*")), "dry-run hat heruntergeladen")
     os.environ.pop("CLIPS_LIVE", None)
     return "VI bleibt VI, V fliegt raus, Warmup deckelt Instagram, dry-run postet nicht"
+
+
+def t_encoder_choice(ctx: Ctx) -> str:
+    """Encoder-Wahl ohne VideoToolbox-Lauf. Linux darf keine Mac-Zahl ausgeben."""
+    probe = r"""
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import check_env
+fast = {"ok": True, "seconds": 0.2, "ssim": 0.995}
+slow = {"ok": True, "seconds": 1.4, "ssim": None}
+linux = check_env.pick_winner("Linux", {"videotoolbox": fast, "x264": slow})
+assert linux["chosen"] == "x264" and "kein macOS" in linux["detail"], linux
+mac = check_env.pick_winner("Darwin", {"videotoolbox": fast, "x264": slow})
+assert mac["chosen"] == "videotoolbox", mac
+weak = dict(fast, ssim=0.90)
+stay = check_env.pick_winner("Darwin", {"videotoolbox": weak, "x264": slow})
+assert stay["chosen"] == "x264", stay
+win = check_env.pick_winner("Windows", {"amf": {"ok": True, "detail": "ok in 0.4 s"}})
+assert win["chosen"] == "amf" and win["amf_ok"] is True, win
+miss = check_env.pick_winner("Windows", {"amf": {"ok": False, "detail": "h264_amf nicht im Build"}})
+assert miss["chosen"] == "x264", miss
+assert check_env.parse_ssim("SSIM Y:0.9 U:0.9 V:0.9 All:0.987 (19.0)") == 0.987
+assert check_env.parse_ssim("keine Zahl") is None
+import collect_results
+url = collect_results.youtube_url("abc", "2026-11-22")
+assert "filters=video%3D%3Dabc" in url and "averageViewDuration" in url, url
+assert "video_ids" in collect_results.tiktok_url("biz", "tt1")
+assert "metric=views" in collect_results.instagram_url("99", "token") and "/v22.0/99/" in collect_results.instagram_url("99", "token")
+parsed = collect_results.parse_youtube({"columnHeaders": [
+    {"name": "views"}, {"name": "averageViewDuration"}, {"name": "averageViewPercentage"}],
+    "rows": [["120", "8.5", "42"]]})
+assert parsed["views"] == 120 and parsed["avg_watch_s"] == 8.5 and parsed["stayed_pct"] == 42.0
+tik = collect_results.parse_tiktok({"code": 0, "data": {"videos": [
+    {"item_id": "tt1", "video_views": 50, "average_time_watched": 4.2, "shares": 1, "comments": 2}]}}, "tt1")
+assert tik["avg_watch_s"] == 4.2 and tik["stayed_pct"] is None and tik["shares"] == 1
+ig = collect_results.parse_instagram({"data": [
+    {"name": "views", "values": [{"value": 30}]},
+    {"name": "ig_reels_avg_watch_time", "values": [{"value": 3100}]}]})
+assert ig["views"] == 30 and ig["avg_watch_s"] is None and ig["stayed_pct"] is None
+print(json.dumps({"ok": True}))
+"""
+    proc = subprocess.run([sys.executable, "-c", probe, str(SCRIPTS)], capture_output=True, text=True)
+    expect(proc.returncode == 0, proc.stderr[-500:] or proc.stdout[-300:])
+    return "VideoToolbox nur auf Darwin und nur bei SSIM >= 0.99, Windows bleibt bei AMF"
+
+
+def t_results_report(ctx: Ctx) -> str:
+    """Zehn erfundene Zeilen, API-Fixture, Report. streamers.yaml bleibt liegen."""
+    vod = "week"
+    work = ctx.home / "work" / vod
+    out = ctx.home / "out" / vod
+    work.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
+    clips = []
+    for index in range(1, 11):
+        clip_id = f"clip{index:02d}"
+        duration = 18 if index >= 9 else 50
+        clips.append({"id": clip_id, "hook": "kurz" if index >= 9 else "dieser Hook ist eindeutig lang genug",
+                      "candidate": "c1"})
+        (out / f"{clip_id}.json").write_text(
+            json.dumps({"clip_id": clip_id, "duration_s": duration}), encoding="utf-8")
+    (work / "meta.json").write_text(json.dumps({
+        "vod_id": vod, "streamer": "seed", "duration_s": 600, "source": "live"}), encoding="utf-8")
+    (work / "clips.json").write_text(json.dumps({"vod_id": vod, "clips": clips}), encoding="utf-8")
+    (work / "candidates.json").write_text(json.dumps({"candidates": [
+        {"id": "c1", "moment_s": 10, "score": 1, "labels": ["hype"]}]}), encoding="utf-8")
+    (work / "source.json").write_text(json.dumps({"twitch_clip_id": "weekclip"}), encoding="utf-8")
+    code, data, err = ctx.run("log_clip.py", "--vod-id", vod)
+    expect(code == 0 and data["clips"] == 10, f"log: {data} {err[-200:]}")
+
+    api = ctx.home / "api.json"
+    api.write_text(json.dumps({"items": [
+        {"vod_id": vod, "clip_id": "clip01", "platform": "youtube", "hours_after": 24,
+         "body": {"columnHeaders": [{"name": "views"}, {"name": "averageViewDuration"},
+                                    {"name": "averageViewPercentage"}],
+                  "rows": [["100", "8.5", "42"]]}},
+        {"vod_id": vod, "clip_id": "clip01", "platform": "tiktok", "external_id": "tt1", "hours_after": 24,
+         "body": {"code": 0, "data": {"videos": [
+             {"item_id": "tt1", "video_views": 100, "average_time_watched": 4.2, "shares": 1, "comments": 2}]}}},
+        {"vod_id": vod, "clip_id": "clip01", "platform": "instagram", "hours_after": 24,
+         "body": {"data": [{"name": "views", "values": [{"value": 30}]},
+                           {"name": "ig_reels_avg_watch_time", "values": [{"value": 3100}]}]}}
+    ]}), encoding="utf-8")
+    code, data, err = ctx.run("collect_results.py", "--fixture", str(api))
+    expect(code == 0 and data["written"] == 3, f"fixture: {data} {err[-200:]}")
+    import sqlite3
+    con = sqlite3.connect(ctx.home / "clips.db")
+    yt = con.execute(
+        "SELECT views, avg_watch_s, stayed_pct FROM results WHERE vod_id=? AND clip_id=? AND platform='youtube'",
+        (vod, "clip01")).fetchone()
+    ig = con.execute(
+        "SELECT views, avg_watch_s, stayed_pct FROM results WHERE vod_id=? AND clip_id=? AND platform='instagram'",
+        (vod, "clip01")).fetchone()
+    tt = con.execute(
+        "SELECT avg_watch_s, stayed_pct, shares FROM results WHERE vod_id=? AND clip_id=? AND platform='tiktok'",
+        (vod, "clip01")).fetchone()
+    expect(yt == (100, 8.5, 42.0) and ig == (30, None, None) and tt == (4.2, None, 1),
+           f"spalten: yt {yt} ig {ig} tt {tt}")
+    names = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    expect("stats" not in names, names)
+    con.execute("DELETE FROM results")
+    con.execute("""CREATE TABLE IF NOT EXISTS posts (
+        vod_id TEXT, clip_id TEXT, platform TEXT, status TEXT, detail TEXT, posted_at TEXT,
+        PRIMARY KEY (vod_id, clip_id, platform))""")
+    con.execute("INSERT INTO posts VALUES (?,?,?,?,?,?)", (vod, "clip09", "tiktok", "posted", "", "2026-11-18T12:00:00"))
+    con.commit()
+    con.close()
+
+    (out / "clip02.stats.json").write_text(json.dumps({"tiktok": {"views": 100, "hours_after": 24}}), encoding="utf-8")
+    code, data, err = ctx.run("collect_results.py", "--scan")
+    expect(code == 0 and data["written"] == 1, f"scan: {data} {err[-200:]}")
+    con = sqlite3.connect(ctx.home / "clips.db")
+    scanned = con.execute(
+        "SELECT views, avg_watch_s, stayed_pct FROM results WHERE clip_id='clip02'").fetchone()
+    expect(scanned == (100, None, None), f"scan ohne Watch Time: {scanned}")
+    con.close()
+
+    for index in range(1, 11):
+        if index == 2:
+            continue
+        views = "1000" if index >= 9 else "100"
+        code, _, err = ctx.run("log_clip.py", "--result", "--vod-id", vod, "--clip", f"clip{index:02d}",
+                                "--platform", "tiktok", "--views", views, "--hours-after", "24")
+        expect(code == 0, err[-200:])
+    cfg = ctx.home / "streamers.yaml"
+    cfg.write_text("defaults:\n  max_clip_s: 60\n", encoding="utf-8")
+    before = cfg.read_bytes()
+    report = ctx.home / "reports" / "week.md"
+    code, data, err = ctx.run("report_week.py", "--out", str(report), "--now", "2026-11-18T12:00:00+01:00")
+    expect(code == 0 and data["wrote_config"] is False and data["counts"]["sources"] >= 1
+           and data["counts"]["posts"] >= 1, f"report: {data} {err[-300:]}")
+    text = report.read_text(encoding="utf-8")
+    expect("max_clip_s: 18" in text and "streamers.yaml wurde nicht geändert" in text, text[-500:])
+    expect("clip09" in text and "clip10" in text and "hype" in text, "muster fehlen")
+    expect(cfg.read_bytes() == before, "streamers.yaml wurde verändert")
+    code, dry, _ = ctx.run("report_week.py", "--dry-run", "--now", "2026-11-18T12:00:00+01:00")
+    expect(code == 0 and dry["path"] is None and dry["wrote_config"] is False, dry)
+    return "10 Clips, Instagram ohne Watch Time, Report schlägt max_clip_s 18 vor und schreibt die YAML nicht"
 
 
 STAGES = {
@@ -1134,6 +1280,8 @@ STAGES = {
     "live_chat_monitor": t_live_chat_monitor,
     "live_record": t_live_record,
     "game_cycle": t_game_cycle,
+    "encoder_choice": t_encoder_choice,
+    "results_report": t_results_report,
 }
 
 

@@ -161,13 +161,23 @@ def unrated():
     return out
 
 
-def record_result(vod, clip, platform, views, shares=0, comments=0, hours_after=24):
-    """Views, Shares und Comments in clips.db results schreiben."""
-    return uv_script(
+def record_result(vod, clip, platform, views, shares=0, comments=0, hours_after=24,
+                  avg_watch_s=None, stayed_pct=None):
+    """Views, Shares und Comments in clips.db results schreiben.
+
+    avg_watch_s und stayed_pct nur, wenn die Quelle sie liefert. Sonst bleiben
+    die Spalten in results leer.
+    """
+    args = [
         "log_clip.py", "--result", "--vod-id", vod, "--clip", clip, "--platform", platform,
         "--views", str(int(views)), "--shares", str(int(shares)), "--comments", str(int(comments)),
         "--hours-after", str(int(hours_after)),
-    )
+    ]
+    if avg_watch_s is not None:
+        args += ["--avg-watch-s", str(avg_watch_s)]
+    if stayed_pct is not None:
+        args += ["--stayed-pct", str(stayed_pct)]
+    return uv_script(*args)
 
 
 def ingest_stats(vod, clip):
@@ -185,7 +195,8 @@ def ingest_stats(vod, clip):
         if not isinstance(stats, dict) or "views" not in stats:
             continue
         record_result(vod, clip, platform, stats.get("views") or 0, stats.get("shares") or 0,
-                      stats.get("comments") or 0, stats.get("hours_after") or 24)
+                      stats.get("comments") or 0, stats.get("hours_after") or 24,
+                      stats.get("avg_watch_s"), stats.get("stayed_pct"))
         done.append(platform)
     return {"status": "recorded", "platforms": done}
 
