@@ -53,8 +53,13 @@ Mit der skills-CLI, wenn dieses Repo die Quelle ist: `npx skills@1.5.16 add <rep
 | TwitchDownloaderCLI | Chat-Replay eines VODs. Ohne ihn läuft der Audio-Modus, `check_env.py` meldet ihn aber als fehlend |
 | streamlink | nur Weg C |
 
-Optional: AMD-GPU (`h264_amf`), sonst libx264. `scripts/check_env.py` prüft die
-Werkzeuge und schreibt `~/clips/state/env.json`.
+Optional: AMD-GPU (`h264_amf`) auf Windows, `h264_videotoolbox` auf macOS, sonst libx264.
+`scripts/check_env.py` prüft die Werkzeuge, wählt den Encoder und schreibt
+`~/clips/state/env.json`. Eine Whisper-Notiz darin stellt das Backend nicht um.
+
+Kennzahlen landen in `clips.db` (`results`), über `scripts/collect_results.py`.
+`scripts/report_week.py` schreibt `~/clips/reports/YYYY-WW.md` und lässt
+`streamers.yaml` unverändert.
 
 Whisper (`faster-whisper`, Modell `small`) lädt beim ersten Transkribieren etwa
 460 MB. Das ist der Grund für die Python-Obergrenze 3.14.

@@ -4,20 +4,25 @@
 # ///
 """Prüft die Umgebung für clipping-streams und merkt sich das Ergebnis.
 
-Prüft ffmpeg/ffprobe (inkl. libass, loudnorm, h264_amf per echter
-Test-Kodierung), yt-dlp, TwitchDownloaderCLI, uv, freien Speicher und einen
-Chromium-Browser. Schreibt das Ergebnis nach <CLIPS_HOME>/state/env.json,
-damit render_clip.py den Encoder nicht jedes Mal neu testen muss.
+Prüft ffmpeg/ffprobe (inkl. libass, loudnorm), yt-dlp, TwitchDownloaderCLI, uv,
+freien Speicher und einen Chromium-Browser. Auf Windows testet es h264_amf.
+Auf macOS vergleicht es h264_videotoolbox mit libx264 und schreibt den
+Gewinner nach <CLIPS_HOME>/state/env.json. Andere Systeme bleiben bei libx264,
+ohne eine Mac-Messung zu behaupten. Whisper wird nur notiert, das Backend
+bleibt faster-whisper.
 
 Exit-Codes: 0 alles Nötige da, 4 Pflicht-Programm fehlt, 1 sonstiger Fehler.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import platform
+import re
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -27,8 +32,8 @@ REQUIRED = ["ffmpeg", "ffprobe", "yt-dlp", "TwitchDownloaderCLI"]
 OPTIONAL = ["uv", "whisper-cli", "streamlink", "deno"]
 _MAC = sys.platform == "darwin"
 HINTS = {
-    "ffmpeg": "brew install ffmpeg-full" if _MAC else "winget install --id Gyan.FFmpeg -e",
-    "ffprobe": "brew install ffmpeg-full" if _MAC else "winget install --id Gyan.FFmpeg -e",
+    "ffmpeg": "brew install ffmpeg" if _MAC else "winget install --id Gyan.FFmpeg -e",
+    "ffprobe": "brew install ffmpeg" if _MAC else "winget install --id Gyan.FFmpeg -e",
     "yt-dlp": "brew install yt-dlp" if _MAC else "winget install --id yt-dlp.yt-dlp -e",
     "TwitchDownloaderCLI": "GitHub-Release lay295/TwitchDownloader (CLI, "
                            + ("MacOSArm64" if _MAC else "Windows-x64") + ") nach ~/clips/bin/ entpacken",
@@ -63,26 +68,132 @@ def ffmpeg_features(ffmpeg: str) -> dict:
 
     return {
         "h264_amf_listed": has(enc, "h264_amf"),
+        "h264_videotoolbox_listed": has(enc, "h264_videotoolbox"),
         "libx264": has(enc, "libx264"),
         "subtitles": has(flt, "subtitles"),
         "loudnorm": has(flt, "loudnorm"),
     }
 
 
-def amf_test(ffmpeg: str) -> tuple[bool, str]:
-    """Gelistet heißt nicht nutzbar: echte 1-s-Kodierung in 1080x1920."""
-    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+def parse_ssim(text: str) -> float | None:
+    """Liest den All-Wert aus der ffmpeg-SSIM-Zeile."""
+    match = re.search(r"All:([0-9]+(?:\.[0-9]+)?)", text or "")
+    if not match:
+        return None
+    return float(match.group(1))
+
+
+def pick_winner(system: str, trials: dict) -> dict:
+    """Wählt den Encoder aus schon gemessenen Läufen.
+
+    Windows bleibt bei h264_amf, wenn der Lauf geklappt hat. macOS nimmt
+    h264_videotoolbox nur, wenn er libx264 ähnlich ist (SSIM mindestens 0.99)
+    und schneller war. Jedes andere System bleibt bei libx264.
+    """
+    amf = trials.get("amf") or {}
+    vt = trials.get("videotoolbox") or {}
+    x264 = trials.get("x264") or {}
+    if system == "Windows":
+        if amf.get("ok"):
+            return {"amf_ok": True, "chosen": "amf", "detail": amf.get("detail") or "amf", "host": system}
+        return {"amf_ok": False, "chosen": "x264", "host": system,
+                "detail": amf.get("detail") or "h264_amf nicht nutzbar"}
+    if system == "Darwin":
+        if vt.get("ok") and x264.get("ok"):
+            ssim = vt.get("ssim")
+            faster = float(vt.get("seconds") or 1e9) < float(x264.get("seconds") or 1e9)
+            if ssim is not None and ssim >= 0.99 and faster:
+                return {"amf_ok": False, "chosen": "videotoolbox", "host": system,
+                        "detail": (f"videotoolbox {vt['seconds']:.2f}s, SSIM {ssim:.3f} gegen libx264 "
+                                   f"{x264['seconds']:.2f}s")}
+            return {"amf_ok": False, "chosen": "x264", "host": system,
+                    "detail": (f"libx264 bleibt (videotoolbox {vt.get('seconds')}s "
+                               f"SSIM {ssim}, libx264 {x264.get('seconds')}s)")}
+        if vt.get("ok") and not x264.get("ok"):
+            return {"amf_ok": False, "chosen": "videotoolbox", "host": system,
+                    "detail": vt.get("detail") or "libx264-Vergleich fehlgeschlagen"}
+        return {"amf_ok": False, "chosen": "x264", "host": system,
+                "detail": vt.get("detail") or "h264_videotoolbox nicht nutzbar"}
+    return {"amf_ok": False, "chosen": "x264", "host": system,
+            "detail": "kein macOS-Vergleich, libx264"}
+
+
+def encode_file(ffmpeg: str, codec_args: list[str], dest: Path) -> dict:
+    """Eine Sekunde 1080x1920. Die Datei bleibt für den SSIM-Vergleich liegen."""
+    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
            "-i", "color=c=black:size=1080x1920:rate=30", "-t", "1",
-           "-c:v", "h264_amf", "-quality", "quality", "-f", "null", "-"]
+           *codec_args, "-pix_fmt", "yuv420p", str(dest)]
     start = time.monotonic()
     try:
         proc = _lib.run(cmd, timeout=90)
     except Exception as exc:  # noqa: BLE001
-        return False, f"{exc.__class__.__name__}: {exc}"
+        return {"ok": False, "seconds": 0.0, "detail": f"{exc.__class__.__name__}: {exc}"}
     took = time.monotonic() - start
-    if proc.returncode == 0:
-        return True, f"ok in {took:.1f} s"
-    return False, (proc.stderr or "").strip()[-300:]
+    if proc.returncode == 0 and dest.is_file():
+        return {"ok": True, "seconds": took, "detail": f"ok in {took:.1f} s"}
+    return {"ok": False, "seconds": took, "detail": (proc.stderr or "").strip()[-300:]}
+
+
+def pair_ssim(ffmpeg: str, left: Path, right: Path) -> float | None:
+    proc = _lib.run([ffmpeg, "-hide_banner", "-i", str(left), "-i", str(right),
+                     "-lavfi", "ssim", "-f", "null", "-"], timeout=60)
+    return parse_ssim((proc.stderr or "") + (proc.stdout or ""))
+
+
+def amf_test(ffmpeg: str) -> tuple[bool, str]:
+    """Gelistet heißt nicht nutzbar: echte 1-s-Kodierung in 1080x1920."""
+    with tempfile.TemporaryDirectory(prefix="clips-amf-") as tmp:
+        trial = encode_file(ffmpeg, ["-c:v", "h264_amf", "-quality", "quality"], Path(tmp) / "amf.mp4")
+    return bool(trial["ok"]), trial["detail"]
+
+
+def darwin_trials(ffmpeg: str, features: dict) -> dict:
+    trials: dict = {}
+    with tempfile.TemporaryDirectory(prefix="clips-enc-") as tmp:
+        root = Path(tmp)
+        if features.get("libx264"):
+            trials["x264"] = encode_file(
+                ffmpeg, ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"], root / "x264.mp4")
+        else:
+            trials["x264"] = {"ok": False, "seconds": None, "detail": "libx264 nicht im Build"}
+        if features.get("h264_videotoolbox_listed"):
+            trials["videotoolbox"] = encode_file(
+                ffmpeg, ["-c:v", "h264_videotoolbox", "-b:v", "8M", "-allow_sw", "0"], root / "vt.mp4")
+        else:
+            trials["videotoolbox"] = {"ok": False, "seconds": None, "detail": "h264_videotoolbox nicht im Build"}
+        if trials["videotoolbox"].get("ok") and trials["x264"].get("ok"):
+            trials["videotoolbox"]["ssim"] = pair_ssim(ffmpeg, root / "vt.mp4", root / "x264.mp4")
+    return trials
+
+
+def whisper_status(system: str) -> dict:
+    """Nur eine Notiz. transcription.backend wird nicht geändert.
+
+    Zeiten von einem anderen Rechner werden nicht übernommen, damit eine
+    Linux-Umgebung keine Mac-Zahl ausgibt.
+    """
+    present = []
+    if _lib.find_tool("whisper-cli"):
+        present.append("whisper-cpp")
+    if importlib.util.find_spec("mlx_whisper") is not None:
+        present.append("mlx-whisper")
+    status = {"measured": False, "changes_backend": False, "backend_stays": "faster-whisper",
+              "present": present}
+    if system != "Darwin":
+        status["reason"] = "Messung nur auf macOS, keine Zahl von diesem Rechner"
+        return status
+    sample = _lib.state_dir() / "whisper_sample.json"
+    if not sample.is_file():
+        status["reason"] = "auf macOS keine Probe in state/whisper_sample.json"
+        return status
+    try:
+        data = _lib.read_json(sample)
+    except (OSError, ValueError) as exc:
+        status["reason"] = f"Probe unlesbar: {exc.__class__.__name__}"
+        return status
+    status.update({"measured": True, "sample": data,
+                   "reason": "nur Messung, Backend bleibt faster-whisper"})
+    return status
 
 
 def find_browser() -> str | None:
@@ -120,7 +231,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true",
                         help="nichts schreiben (state/env.json bleibt unverändert)")
     parser.add_argument("--skip-encode-test", action="store_true",
-                        help="h264_amf nicht per Test-Kodierung prüfen")
+                        help="Encoder nicht per Test-Kodierung prüfen")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     log = _lib.setup("check_env", args.verbose)
@@ -138,19 +249,25 @@ def main() -> None:
             level("%s fehlt -> %s", name, HINTS[name])
 
     features: dict = {}
-    encoder = {"amf_ok": False, "chosen": "x264", "detail": "ffmpeg fehlt"}
+    system = platform.system()
+    encoder = {"amf_ok": False, "chosen": "x264", "detail": "ffmpeg fehlt", "host": system}
     if tools["ffmpeg"]["path"]:
         features = ffmpeg_features(tools["ffmpeg"]["path"])
         if not features["subtitles"]:
             log.error("ffmpeg ohne libass (subtitles-Filter) -> Full-Build installieren")
             missing.append("ffmpeg:libass")
-        if features["h264_amf_listed"] and not args.skip_encode_test:
-            ok, detail = amf_test(tools["ffmpeg"]["path"])
-            encoder = {"amf_ok": ok, "chosen": "amf" if ok else "x264", "detail": detail}
-        elif features["h264_amf_listed"]:
-            encoder = {"amf_ok": None, "chosen": "x264", "detail": "Test übersprungen"}
+        if args.skip_encode_test:
+            encoder = {"amf_ok": None, "chosen": "x264", "detail": "Test übersprungen", "host": system}
+        elif system == "Windows":
+            if features["h264_amf_listed"]:
+                ok, detail = amf_test(tools["ffmpeg"]["path"])
+            else:
+                ok, detail = False, "h264_amf nicht im Build"
+            encoder = pick_winner(system, {"amf": {"ok": ok, "detail": detail}})
+        elif system == "Darwin":
+            encoder = pick_winner(system, darwin_trials(tools["ffmpeg"]["path"], features))
         else:
-            encoder = {"amf_ok": False, "chosen": "x264", "detail": "h264_amf nicht im Build"}
+            encoder = pick_winner(system, {})
         log.info("Encoder: %s (%s)", encoder["chosen"], encoder["detail"])
 
     probe_dir = home if home.exists() else home.parent
@@ -174,6 +291,7 @@ def main() -> None:
         "tools": tools,
         "ffmpeg_features": features,
         "encoder": encoder,
+        "whisper": whisper_status(system),
         "browser": browser,
         "vulkan_runtime": vulkan,
         "missing": missing,

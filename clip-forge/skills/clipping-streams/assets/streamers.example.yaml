@@ -39,7 +39,7 @@ transcription:
     extra_args: []
 
 render:
-  encoder: auto             # auto (aus check_env) | amf | x264
+  encoder: auto             # auto (aus check_env) | amf | videotoolbox | x264
   width: 1080
   height: 1920
   fps: 30

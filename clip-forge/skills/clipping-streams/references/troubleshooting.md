@@ -2,7 +2,8 @@
 
 ## Programme fehlen (Exit 4)
 `check_env.py` zeigt, was fehlt. Installation nur nach Rückfrage beim User:
-- ffmpeg/ffprobe: `winget install --id Gyan.FFmpeg -e` (Full-Build: libass, h264_amf)
+- ffmpeg/ffprobe, Windows: `winget install --id Gyan.FFmpeg -e` (Full-Build: libass, h264_amf)
+- ffmpeg/ffprobe, macOS: `brew install ffmpeg`. `check_env.py` prüft libass danach selbst.
 - yt-dlp: `winget install --id yt-dlp.yt-dlp -e`, Update: `winget upgrade --id yt-dlp.yt-dlp -e`
   (Twitch ändert oft etwas: bei Download-Fehlern zuerst yt-dlp aktualisieren)
 - TwitchDownloaderCLI: GitHub-Release lay295/TwitchDownloader, Datei `TwitchDownloaderCLI-<ver>-Windows-x64.zip`,
