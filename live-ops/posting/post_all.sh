@@ -143,3 +143,5 @@ for P in $order; do
   esac
   unlock
 done
+
+echo "{\"vod\": \"$V\", \"clip\": \"$C\", \"ts\": $(date +%s)}" >> "$LIVE/posted_clips.jsonl"

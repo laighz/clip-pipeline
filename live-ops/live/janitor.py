@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "clip-forge/skills/
 import _https
 
 RAW = os.path.expanduser('~/clips/raw/live')
+os.makedirs(RAW, exist_ok=True)
 WORK = os.path.expanduser('~/clips/work')
 TRASH = os.path.expanduser('~/clips/trash')
 LIVE = os.path.expanduser('~/.hermes/cache/scratch/live')
@@ -79,6 +80,17 @@ def pins():
         for l in open(KEEP_FILE):
             a = l.split()
             if len(a) >= 2: p.setdefault(a[0], []).append(float(a[1]))
+    # best-of-day lists (daily_best.py --save): raw around those moments is never deleted, 48 h after the end of that day
+    f = f'{LIVE}/daily_best.json'
+    if os.path.exists(f):
+        import datetime
+        try:
+            for day, items in json.load(open(f)).items():
+                end = datetime.datetime.strptime(day, '%Y-%m-%d').timestamp() + 86400
+                if now - end > 48 * 3600: continue
+                for it in items: p.setdefault(it['rec'], []).append(float(it['moment_s']))
+        except Exception as ex:
+            log(f'daily_best.json unreadable: {ex}')
     return p
 
 
@@ -272,5 +284,34 @@ for d in glob.glob(f'{TRASH}/*') + glob.glob(f'{RAW}/*'):
         if d.startswith(TRASH) or not os.path.exists(f'{WORK}/{os.path.basename(d)}/clips.json'):
             log(f'rmdir {d}')
             if not DRY: shutil.rmtree(d)
+
+# --- posted clips: delete finished clips (and their raw VOD sections) 24 h after they were posted (user rule 21.11.2026)
+POSTED_TTL_H = 24
+LEDGER = f'{LIVE}/posted_clips.jsonl'
+def clean_posted():
+    if not os.path.exists(LEDGER): return
+    rows = [json.loads(l) for l in open(LEDGER) if l.strip()]
+    posted = {}
+    for r in rows: posted.setdefault(r['vod'], {})[r['clip']] = max(r['ts'], posted.get(r['vod'], {}).get(r['clip'], 0))
+    out_root = os.path.expanduser('~/clips/out')
+    for vod, clips in posted.items():
+        for clip, ts in clips.items():
+            if now - ts < POSTED_TTL_H * 3600: continue
+            for f in glob.glob(f'{out_root}/{vod}/{clip}.*') + glob.glob(f'{out_root}/{vod}/{clip}_*'):
+                log(f'delete posted clip file {os.path.relpath(f, out_root)} ({os.path.getsize(f)/1e6:.0f} MB, posted {(now-ts)/3600:.0f} h ago)')
+                if not DRY: os.remove(f)
+        d = f'{out_root}/{vod}'
+        if os.path.isdir(d) and not glob.glob(f'{d}/clip*.mp4') and not DRY:
+            shutil.rmtree(d, ignore_errors=True)
+        # raw VOD sections: only when every clip of that VOD is posted > 24 h ago
+        cj = f'{WORK}/{vod}/clips.json'
+        raw_d = os.path.expanduser(f'~/clips/raw/{vod}')
+        if os.path.isdir(raw_d) and os.path.exists(cj):
+            ids = [c['id'] for c in json.load(open(cj)).get('clips', [])]
+            if ids and all(i in clips and now - clips[i] >= POSTED_TTL_H * 3600 for i in ids):
+                log(f'delete raw sections {raw_d}')
+                if not DRY: shutil.rmtree(raw_d, ignore_errors=True)
+
+clean_posted()
 
 log(f'done: free {free_gb():.1f} GB, protected {len(protected)} seg(s): ' + ', '.join(f"{os.path.basename(os.path.dirname(x[1]))}/{os.path.basename(x[1])}[{x[4]}]" for x in protected[:6]))

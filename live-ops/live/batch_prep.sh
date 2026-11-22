@@ -11,7 +11,7 @@ cleanup() {
   rm -f batch.lock
 }
 trap cleanup EXIT
-RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in trymacs papaplatte lacy ludwig xrohat zarbex montanablack88 xqc caseoh_ moistcr1tikal darkviperau ohnepixel handofblood rewinside niekbeats sterzik pietsmiet; do ls -t ~/clips/raw/live | grep "^$CH-" | head -3; done)
+RECS="$@"; [ -z "$RECS" ] && RECS=$(for CH in syndicate xrohat trymacs zarbex darkviperau ohnepixel rewinside pietsmiet; do ls -t ~/clips/raw/live | grep "^$CH-" | head -3; done)
 for R in $RECS; do
   CH=${R%-*-*}
   LANG=de; case $CH in lacy|ludwig|xqc|caseoh_|moistcr1tikal|darkviperau|ohnepixel) LANG=en;; esac
