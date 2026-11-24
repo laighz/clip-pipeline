@@ -3,7 +3,9 @@ p,b,ctx=connect()
 pg=get_page(ctx,'x.com')
 btn=pg.locator('[role=dialog] [data-testid="tweetButton"]').first
 try:
-    btn.click(timeout=15000)
+    btn.click(trial=True, timeout=15000)
+    mark_submission()
+    btn.click(timeout=5000)
 except Exception as e:
     print('ERR',str(e)[:300])
     # identify interceptor

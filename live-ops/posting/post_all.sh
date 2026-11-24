@@ -2,13 +2,16 @@
 # Usage: post_all.sh <vod> <clip>
 # Posts staggered: platforms in random order, 10-60 min random gap between platforms.
 # Global browser lock so overlapping jobs never drive the browser at the same time.
-V=$1
-C=$2
+V=${1:-}
+C=${2:-}
+[[ "$V" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,159}$ && "$C" =~ ^clip[0-9]+$ ]] || exit 64
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WARM="$ROOT/live-ops/live/warmup.py"
+POST="$ROOT/live-ops/posting"
 cd ~/.hermes/cache/scratch/pw || exit 1
-LOCK=/tmp/livespiked_browser.lock
+LOCK=${POST_BROWSER_LOCK:-/tmp/livespiked_browser.lock}
 LIVE=~/.hermes/cache/scratch/live
+locked=0
 
 warm_ok() {
   if [ ! -f "$WARM" ]; then
@@ -18,17 +21,23 @@ warm_ok() {
 }
 
 lock() {
+  local waits=0
   while ! mkdir "$LOCK" 2>/dev/null; do
-    sleep 20
+    (( waits++ < 60 )) || return 1
+    sleep 5
   done
+  locked=1
 }
 unlock() {
-  rmdir "$LOCK" 2>/dev/null
+  if [ "$locked" = 1 ]; then
+    rmdir "$LOCK" 2>/dev/null
+    locked=0
+  fi
 }
-run() {
-  uv run --quiet --with playwright python "$@" 2>&1 | tail -3 | tr '\n' ' '
-  echo
-}
+trap unlock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+status() { python3 "$POST/publish_status.py" "$1" "$LIVE" "$V" "$C" "${@:2}"; }
 
 if [ -z "$SKIP" ]; then
   SKIP=NONE
@@ -40,12 +49,21 @@ if [ -z "$GAPSPAN" ]; then
   GAPSPAN=1800
 fi
 
-if [ ! -f ~/clips/out/$V/$C.novo.mp4 ]; then
-  python3 "$LIVE/vo_mix.py" "$V" "$C" >> "$LIVE/vo.log" 2>&1 || echo "VO: fehlgeschlagen, poste ohne"
-fi
-
 FIRST=1
 order=$(printf "YT\nTT\nX\nSC\nIG\n" | sort -R | grep -vxE "$SKIP")
+[ -n "$order" ] || exit 0
+lock || exit 1
+if [ ! -f "$HOME/clips/out/$V/$C.mp4" ]; then
+  echo 'Missing rendered MP4; no upload attempted'
+  exit 2
+fi
+if [ ! -f "$HOME/clips/out/$V/$C.novo.mp4" ]; then
+  /bin/zsh -c 'python3 "$@"' _ "$ROOT/live-ops/live/vo_mix.py" "$V" "$C" >> "$LIVE/vo.log" 2>&1 || {
+    echo 'Voice-over failed; no upload attempted (see vo.log)'; exit 2;
+  }
+fi
+for P in $order; do status target "$P" || exit 2; done
+unlock
 for P in $order; do
   if [ "$P" = "YT" ]; then
     B=$LIVE/YT_BLOCKED
@@ -105,43 +123,41 @@ for P in $order; do
     sleep $((GAPMIN + RANDOM % GAPSPAN))
   fi
   FIRST=0
-  lock
-  case $P in
-    YT)
-      Y=$(run ytu.py "$V" "$C")
-      echo "$Y" | grep -q "shorts/" || Y="retry: $(run ytu.py "$V" "$C")"
-      if echo "$Y" | grep -q "shorts/"; then
-        date +%s >> "$LIVE/yt_posts.log"
-      fi
-      if echo "$Y" | grep -qi "limit"; then
-        echo $(($(date +%s) + 86400)) > "$LIVE/YT_BLOCKED"
-      fi
-      echo "YT $(date +%H:%M): $Y"
-      ;;
-    TT)
-      R=$(run ttu.py "$V" "$C")
-      if echo "$R" | grep -q "tiktokstudio"; then
-        date +%s >> "$LIVE/tt_posts.log"
-      fi
-      echo "TT $(date +%H:%M): $R"
-      ;;
-    IG)
-      R=$(run igu.py "$V" "$C")
-      if echo "$R" | grep -q "shared"; then
-        date +%s >> "$LIVE/ig_posts.log"
-      fi
-      echo "IG $(date +%H:%M): $R"
-      ;;
-    X)
-      xout=$(run x2.py "$V" "$C")
-      x3=$(run x3.py)
-      echo "X  $(date +%H:%M): $xout $x3"
-      ;;
-    SC)
-      echo "SC $(date +%H:%M): $(run scu.py "$V" "$C")"
-      ;;
+  lock || { echo "$P: browser lock unavailable"; exit 1; }
+  state=$(status status "$P") || exit 1
+  opts=()
+  case "$state" in
+    confirmed) echo "$P: already verified"; unlock; continue ;;
+    pending) opts=(--verify-only) ;;
+    new) ;;
+    *) exit 1 ;;
   esac
+  echo "$P $(date +%H:%M): $state"
+  uv run --quiet --with playwright python "$POST/publish_one.py" "$P" "$V" "$C" "${opts[@]}"
+  rc=$?
+  if [ "$rc" = 0 ] || [ "$rc" = 10 ]; then
+    if [ "$(status status "$P")" != confirmed ]; then
+      echo "$P: verified result has no durable proof for the current render"
+    else
+      case "$P" in
+        TT) date +%s >> "$LIVE/tt_posts.log" ;;
+        YT) date +%s >> "$LIVE/yt_posts.log" ;;
+        IG) date +%s >> "$LIVE/ig_posts.log" ;;
+      esac
+    fi
+  else
+    if [ "$P" = YT ] && [ "$rc" = 11 ]; then
+      echo $(($(date +%s) + 86400)) > "$LIVE/YT_BLOCKED"
+    fi
+    echo "$P: not verified (exit $rc); no automatic re-upload"
+  fi
   unlock
 done
 
-echo "{\"vod\": \"$V\", \"clip\": \"$C\", \"ts\": $(date +%s)}" >> "$LIVE/posted_clips.jsonl"
+lock || exit 1
+platforms=()
+while IFS= read -r P; do platforms+=("$P"); done <<< "$order"
+if ! status complete "${platforms[@]}"; then
+  echo "Not all selected or previously requested platforms were verified; cleanup not armed."
+  exit 2
+fi

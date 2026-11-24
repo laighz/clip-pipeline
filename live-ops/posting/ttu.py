@@ -1,32 +1,34 @@
-from h import *
-import os, sys
-vod,clip=sys.argv[1],sys.argv[2]
-p,b,ctx=connect()
-pg=get_page(ctx,'tiktok')
-pg.bring_to_front()
-pg.goto('https://www.tiktok.com/tiktokstudio/upload',wait_until='domcontentloaded'); pg.wait_for_timeout(5000)
-d=pg.get_by_role('button',name='Discard')
-if d.count():
-    d.first.click(); pg.wait_for_timeout(1500)
-    c=pg.get_by_role('button',name='Discard')
-    if c.count(): c.last.click()
-    pg.wait_for_timeout(1500)
-pg.locator('input[type=file]').first.set_input_files(os.path.expanduser(f'~/clips/out/{vod}/{clip}.mp4'))
-pg.wait_for_timeout(15000)
-for n in ['Cancel','Got it']:
-    x=pg.get_by_role('button',name=n)
-    if x.count(): x.first.click(); pg.wait_for_timeout(800)
-ed=pg.locator('div[contenteditable="true"]').first
-ed.scroll_into_view_if_needed(); ed.click()
-pg.keyboard.press('Meta+A'); pg.keyboard.press('Backspace')
-txt=open(os.path.expanduser(f'~/clips/out/{vod}/{clip}.txt')).read().split('--- TIKTOK ---')[1].split('---')[0].strip()
-for w in txt.split(' '):
-    pg.keyboard.type(w)
-    if w[:1] in '#@': pg.wait_for_timeout(1200)
-    pg.keyboard.type(' ')
-pg.wait_for_timeout(1500)
-print('caption:',ed.inner_text())
-btn=pg.locator('button[data-e2e="post_video_button"]')
-btn.first.scroll_into_view_if_needed(); btn.first.click()
-pg.wait_for_timeout(8000)
-print(pg.url)
+from pathlib import Path
+import re
+import sys
+
+from playwright.sync_api import TimeoutError as BrowserTimeout
+from h import connect, get_page, mark_submission
+from publish_status import normalize
+
+vod, clip = sys.argv[1:3]
+base = Path.home() / 'clips/out' / vod / clip
+caption = base.with_suffix('.txt').read_text().split('--- TIKTOK ---', 1)[1].split('---', 1)[0].strip()
+_, _, ctx = connect()
+page = get_page(ctx, 'tiktok')
+page.goto('https://www.tiktok.com/tiktokstudio/upload', wait_until='domcontentloaded', timeout=30000)
+page.locator('input[type=file]').first.set_input_files(str(base.with_suffix('.mp4')), timeout=30000)
+# Wait for controls rather than guessing how long this upload needs.
+editor = page.locator('div[contenteditable="true"]').first
+editor.wait_for(state='visible', timeout=60000)
+hint = page.get_by_role('dialog').get_by_role('button', name='Got it', exact=True)
+if hint.count() == 1 and hint.is_visible():
+    hint.click()
+editor.fill(caption)
+editor.press('Tab')
+if normalize(editor.inner_text(timeout=5000)) != normalize(caption):
+    raise RuntimeError('TikTok caption differs from the intended caption')
+button = page.locator('button[data-e2e="post_video_button"]')
+button.click(trial=True, timeout=90000)
+mark_submission()
+button.click(timeout=5000)
+# Never dismiss a content-check or duplicate prompt blindly.
+try:
+    page.wait_for_url(re.compile(r'/tiktokstudio/content(?:[/?]|$)'), timeout=10000)
+except BrowserTimeout:
+    print('TikTok did not navigate to its posts list; checking readback separately.')

@@ -1,5 +1,13 @@
 # Posten
 
+## Erfolg prüfen, bevor erneut gepostet oder gelöscht wird
+
+- Der Live-Upload läuft über `live-ops/posting/post_all.sh`, auch für Einzelplattformen (`SKIP` setzt die übrigen aus). Nicht direkt die alten Plattformskripte aus `scratch/pw` starten; damit fehlen Beitragsprüfung und Schutz vor Doppelposts.
+- TikTok: öffentlichen Beitrag mit vollständiger Caption und einer neuen Beitrags-ID im Studio nachweisen. Die vorhandenen IDs vor dem Absenden sichern; eine ältere Übereinstimmung ist kein Erfolg. YouTube und X ebenfalls in der Beitragsliste abgleichen. Snapchat: Spotlight muss das einzige eindeutig gewählte Ziel sein; Public Stories, unlesbare Auswahl und generische Erfolgsbanner reichen nicht.
+- Erst unmittelbar vor dem Veröffentlichen einen Versuch speichern. Fehler beim Öffnen des Browsers oder beim Vorbereiten bleiben wiederholbar; nach einem unklaren Absenden prüft dieselbe Batch-Anweisung nur lesend. Fehlt die plattformspezifische Bestätigung, den Ziel-Tab prüfen statt blind neu hochzuladen.
+- Die 24-h-Löschung betrifft nur die bestätigte, unveränderte MP4-Version und ihre Renderdateien; Rohmaterial bleibt bei dieser Regel unberührt. Alt-Einträge ohne Prüfsumme sind kein Löschbeleg. Ein blockiertes ausgewähltes Ziel zählt nicht als fertig; wenn es nicht Teil des Auftrags ist, vorher ausdrücklich mit `SKIP` ausnehmen.
+- Erst das vollständige Log und den lokalen Playwright-Trace unter `~/.hermes/cache/scratch/pw/diagnostics/` prüfen. Traces können private Dashboard-Daten enthalten: lokal lassen und nicht ins Repo laden. [OpenCode Browse](https://opencode.ai/product/browse) ist ein optionaler manueller Diagnose-Fallback: Erweiterung nur im separaten Posting-Profil, Sitzung auf die nötigen Domains begrenzen, keine automatische Upload-Wiederholung. Bei Login oder 2FA übernimmt der Nutzer.
+
 `<root>` ist das clip-pipeline-Repo, der Ordner mit `clip-forge` und `live-ops`.
 
 - Schwellen (User, 19.11.2026): Score ≥ 80 sofort posten (alle Plattformen, Takt und Limits gelten). Bei 70–79 nicht posten, aber sichern: Clip fertig rendern inklusive VO, in `live/saved.jsonl` eintragen (rec, clip, Score, Kurzbeschreibung) und im Output liegen lassen, damit der User später freigeben kann. Der Janitor schützt die Rohdaten ab Score 50 sowieso 24 h.

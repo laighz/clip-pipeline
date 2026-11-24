@@ -22,7 +22,9 @@ for i in range(60):
     txt=dlg.inner_text()
     if 'Uploading' not in txt and 'Hochladen' not in txt: break
     pg.wait_for_timeout(3000)
-dlg.locator('#done-button').click(); pg.wait_for_timeout(3000)
+dlg.locator('#done-button').click(trial=True, timeout=30000)
+mark_submission()
+dlg.locator('#done-button').click(timeout=5000); pg.wait_for_timeout(3000)
 # YT may still be running checks: confirm with "Publish anyway" (user rule)
 for name in ('Publish anyway', 'Trotzdem veröffentlichen'):
     pa = pg.get_by_role('button', name=name)

@@ -1,0 +1,190 @@
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load(name):
+    spec = importlib.util.spec_from_file_location(name, ROOT / (name + '.py'))
+    assert spec is not None and spec.loader is not None, name
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class Ledger(unittest.TestCase):
+    def test_blocked_request_is_not_a_successful_empty_batch(self):
+        with tempfile.TemporaryDirectory() as home:
+            live = Path(home) / '.hermes/cache/scratch/live'
+            live.mkdir(parents=True)
+            (live.parent / 'pw').mkdir()
+            (live / 'IG_BLOCKED').touch()
+            out = Path(home) / 'clips/out/example'
+            out.mkdir(parents=True)
+            (out / 'clip01.mp4').touch()
+            (out / 'clip01.novo.mp4').touch()
+            run = subprocess.run(['bash', str(ROOT / 'post_all.sh'), 'example', 'clip01'],
+                                 env={**os.environ, 'HOME': home, 'SKIP': 'YT|TT|SC|X',
+                                      'POST_BROWSER_LOCK': str(Path(home) / 'lock')},
+                                 capture_output=True, text=True, timeout=10)
+            self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+
+            self.assertIn('IG: skipped (blocked)', run.stdout)
+
+    def test_replacing_mp4_does_not_inherit_a_verified_revision(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            media = home / 'clips/out/vid/clip01.mp4'
+            media.parent.mkdir(parents=True)
+            media.write_bytes(b'first media')
+            status = load('publish_status')
+            first = status.media_revision(media)
+            ledger = home / 'posted_clips.jsonl'
+            now = int(time.time())
+            ledger.write_text(json.dumps(dict(vod='vid', clip='clip01', ts=now, verified=True,
+                                              platforms=['TT'], revision=first)) + '\n')
+            self.assertEqual(status.confirmed_records(ledger, out_root=media.parents[1]), {'vid': {'clip01': now}})
+            media.write_bytes(b'replacement')
+            self.assertEqual(status.confirmed_records(ledger, out_root=media.parents[1]), {})
+    def test_all_skipped_cannot_start_deletion_timer(self):
+        with tempfile.TemporaryDirectory() as home:
+            tmp = Path(home)
+            live = tmp / '.hermes/cache/scratch/live'
+            live.mkdir(parents=True)
+            (live.parent / 'pw').mkdir()
+            out = tmp / 'clips/out/example'
+            out.mkdir(parents=True)
+            (out / 'clip01.novo.mp4').touch()
+            run = subprocess.run(['bash', str(ROOT / 'post_all.sh'), 'example', 'clip01'],
+                                 env={**os.environ, 'HOME': home, 'SKIP': 'YT|TT|X|SC|IG'},
+                                 capture_output=True, text=True, timeout=10)
+            self.assertFalse((live / 'posted_clips.jsonl').exists(), run.stdout + run.stderr)
+
+    def test_uncertain_upload_is_only_rechecked_on_second_run(self):
+        with tempfile.TemporaryDirectory() as home:
+            tmp = Path(home)
+            live = tmp / '.hermes/cache/scratch/live'
+            live.mkdir(parents=True)
+            (live.parent / 'pw').mkdir()
+            out = tmp / 'clips/out/example'
+            out.mkdir(parents=True)
+            (out / 'clip01.novo.mp4').touch()
+            bin_dir = tmp / 'bin'
+            (out / 'clip01.mp4').touch()
+            bin_dir.mkdir()
+            uv = bin_dir / 'uv'
+            uv.write_text('#!/bin/bash\nif [[ "$*" == *--verify-only* ]]; then\n'
+                          '  python3 "$POST_TEST_ROOT/publish_status.py" confirm "$HOME/.hermes/cache/scratch/live" example clip01 X || exit 1\n'
+                          '  echo "readback only"; exit 10\nfi\n'
+                          'PYTHONPATH="$POST_TEST_ROOT" python3 -c \'import publish_status as s; from pathlib import Path; h=Path.home(); s.save_attempt(h/".hermes/cache/scratch/live", "example", "clip01", s.media_revision(h/"clips/out/example/clip01.mp4"), "X", [])\' || exit 1\n'
+                          'echo "submission unconfirmed"; exit 2\n')
+            uv.chmod(0o700)
+            env = {**os.environ, 'HOME': home, 'SKIP': 'TT|YT|SC|IG',
+                   'POST_BROWSER_LOCK': str(tmp / 'browser.lock'), 'POST_TEST_ROOT': str(ROOT),
+                   'PATH': str(bin_dir) + os.pathsep + os.environ['PATH']}
+            cmd = ['bash', str(ROOT / 'post_all.sh'), 'example', 'clip01']
+            fake = uv.read_text()
+            uv.write_text('#!/bin/bash\necho "CDP unavailable before submit"; exit 1\n')
+            preflight = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(preflight.returncode, 2, preflight.stdout + preflight.stderr)
+            self.assertNotIn('attempted', (live / 'publish_attempts.jsonl').read_text())
+            uv.write_text(fake)
+            first = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(first.returncode, 2, first.stdout + first.stderr)
+            self.assertFalse((live / 'posted_clips.jsonl').exists())
+            second = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+            self.assertIn('readback only', second.stdout)
+            self.assertNotIn('submission unconfirmed', second.stdout)
+            self.assertEqual(json.loads((live / 'posted_clips.jsonl').read_text())['platforms'], ['X'])
+
+    def test_legacy_and_unverified_attempts_are_not_cleanup_records(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'posted_clips.jsonl'
+            now = int(time.time())
+            rows = [{'vod': 'vid', 'clip': 'clip01', 'ts': now},
+                    {'vod': 'vid', 'clip': 'clip02', 'ts': now, 'verified': False},
+                    {'vod': '../vid', 'clip': 'clip03', 'ts': now, 'verified': True, 'platforms': ['TT']},
+                    {'vod': 'vid', 'clip': 'clip04', 'ts': now, 'verified': True, 'platforms': ['TT']}]
+            path.write_text('\n'.join(map(json.dumps, rows)) + '\n{incomplete\n')
+            self.assertEqual(load('publish_status').confirmed_records(path), {})
+
+
+class Readback(unittest.TestCase):
+    def test_tiktok_only_accepts_exact_public_caption_in_post_list(self):
+        confirm = load('publish_status').tiktok_row
+        caption = 'Dolores hat Hausverbot #gta6'
+        def body(text, visibility='Everyone'):
+            return '\n'.join(['Posts (Created on)', '00:19', text, 'Nov 23, 10:49 PM', visibility, '31', '2', '0'])
+        self.assertTrue(confirm(body(caption), caption))
+        self.assertTrue(confirm(body(caption.lower()), caption))
+        self.assertFalse(confirm(body(caption, 'Only you'), caption))
+        self.assertFalse(confirm(body(caption + ' Remix'), caption))
+        self.assertFalse(confirm('Upload\n' + caption, caption))
+
+    def test_story_is_not_spotlight(self):
+        confirm = load('publish_status').spotlight_receipt
+        self.assertFalse(confirm('/details/public-stories', 'Success! Your Snap is now live!'))
+        self.assertFalse(confirm('/details/spotlights', 'Success!'))
+        self.assertFalse(confirm('/web-uploader', 'Success! Your Snap is now live!'))
+        self.assertTrue(confirm('/details/spotlights', 'Success! Your Snap is now live!'))
+
+    def test_followup_cannot_complete_while_other_platform_is_unconfirmed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            tmp = Path(folder)
+            media = tmp / 'clips/out/example/clip01.mp4'
+            media.parent.mkdir(parents=True)
+            media.write_bytes(b'clip')
+            status = load('publish_status')
+            rev = status.media_revision(media)
+            def action(verb, *platforms):
+                return subprocess.run([sys.executable, str(ROOT / 'publish_status.py'), verb,
+                                       folder, 'example', 'clip01', *platforms],
+                                      env={**os.environ, 'HOME': folder}, capture_output=True, text=True)
+            self.assertEqual(action('target', 'TT').returncode, 0)
+            self.assertEqual(action('status', 'TT').stdout.strip(), 'new')
+            status.save_attempt(tmp, 'example', 'clip01', rev, 'TT', ['1'])
+            self.assertEqual(action('status', 'TT').stdout.strip(), 'pending')
+            status.save_attempt(tmp, 'example', 'clip01', rev, 'YT', ['2'])
+            self.assertEqual(action('confirm', 'YT').returncode, 0)
+            self.assertEqual(action('complete', 'YT').returncode, 2)
+            self.assertFalse((tmp / 'posted_clips.jsonl').exists())
+            self.assertEqual(action('confirm', 'TT').returncode, 0)
+            self.assertEqual(action('complete', 'YT', 'TT').returncode, 0)
+            self.assertEqual(action('complete', 'YT', 'TT').returncode, 0)
+            rows = (tmp / 'posted_clips.jsonl').read_text().splitlines()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(json.loads(rows[0])['platforms'], ['TT', 'YT'])
+            self.assertEqual(action('target', 'SC').returncode, 0)
+            self.assertEqual(load('publish_status').confirmed_records(tmp / 'posted_clips.jsonl',
+                                  tmp / 'publish_attempts.jsonl', out_root=media.parents[1]), {})
+
+    def test_janitor_dry_run_only_selects_confirmed_old_clip(self):
+        with tempfile.TemporaryDirectory() as folder:
+            tmp = Path(folder)
+            live = tmp / '.hermes/cache/scratch/live'
+            live.mkdir(parents=True)
+            out = tmp / 'clips/out/example'
+            out.mkdir(parents=True)
+            for i in range(1, 4):
+                (out / f'clip0{i}.mp4').touch()
+            now = int(time.time())
+            rev = load('publish_status').media_revision(out / 'clip02.mp4')
+            rows = [{'vod': 'example', 'clip': 'clip01', 'ts': now - 90000},
+                    {'vod': 'example', 'clip': 'clip02', 'ts': now - 90000, 'verified': True, 'platforms': ['TT'], 'revision': rev},
+                    {'vod': 'example', 'clip': 'clip03', 'ts': now, 'verified': True, 'platforms': ['TT'], 'revision': rev}]
+            (live / 'posted_clips.jsonl').write_text('\n'.join(map(json.dumps, rows)) + '\n')
+            run = subprocess.run([sys.executable, str(ROOT.parent / 'live/janitor.py'), '--dry-run'],
+                                 env={**os.environ, 'HOME': folder}, capture_output=True, text=True, timeout=15)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn('delete posted clip file example/clip02.mp4', run.stdout)
+            self.assertNotIn('delete posted clip file example/clip01.mp4', run.stdout)
+            self.assertNotIn('delete posted clip file example/clip03.mp4', run.stdout)
+            self.assertEqual(len(list(out.glob('*.mp4'))), 3)

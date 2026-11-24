@@ -27,7 +27,9 @@ import json, os, shutil, sys, time, glob
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "clip-forge/skills/clipping-streams/scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "posting"))
 import _https
+from publish_status import confirmed_records, file_stamp
 
 RAW = os.path.expanduser('~/clips/raw/live')
 os.makedirs(RAW, exist_ok=True)
@@ -285,32 +287,41 @@ for d in glob.glob(f'{TRASH}/*') + glob.glob(f'{RAW}/*'):
             log(f'rmdir {d}')
             if not DRY: shutil.rmtree(d)
 
-# --- posted clips: delete finished clips (and their raw VOD sections) 24 h after they were posted (user rule 21.11.2026)
+# --- delete verified, unchanged finished clips 24 h after publication
 POSTED_TTL_H = 24
 LEDGER = f'{LIVE}/posted_clips.jsonl'
 def clean_posted():
-    if not os.path.exists(LEDGER): return
-    rows = [json.loads(l) for l in open(LEDGER) if l.strip()]
-    posted = {}
-    for r in rows: posted.setdefault(r['vod'], {})[r['clip']] = max(r['ts'], posted.get(r['vod'], {}).get(r['clip'], 0))
+    posted = confirmed_records(Path(LEDGER), Path(LIVE) / 'publish_attempts.jsonl')
     out_root = os.path.expanduser('~/clips/out')
     for vod, clips in posted.items():
+        d = f'{out_root}/{vod}'
+        if os.path.islink(d):
+            continue
         for clip, ts in clips.items():
             if now - ts < POSTED_TTL_H * 3600: continue
-            for f in glob.glob(f'{out_root}/{vod}/{clip}.*') + glob.glob(f'{out_root}/{vod}/{clip}_*'):
+            # Recheck in case a fresh render replaced the MP4 after the initial scan.
+            media = Path(d) / (clip + '.mp4')
+            try:
+                stamp = file_stamp(media.stat())
+                ts = confirmed_records(Path(LEDGER), Path(LIVE) / 'publish_attempts.jsonl').get(vod, {}).get(clip)
+                if ts is None or now - ts < POSTED_TTL_H * 3600 or stamp != file_stamp(media.stat()):
+                    continue
+            except OSError:
+                continue
+            # Remove only known render files, never an entire source directory.
+            for suffix in ('.novo.mp4', '.vo.mp3', '.txt', '.json', '.ass', '.mp4'):
+                f = f'{d}/{clip}{suffix}'
+                if os.path.islink(f) or not os.path.isfile(f):
+                    continue
+                try:
+                    if stamp != file_stamp(media.stat()):
+                        break
+                except OSError:
+                    break
                 log(f'delete posted clip file {os.path.relpath(f, out_root)} ({os.path.getsize(f)/1e6:.0f} MB, posted {(now-ts)/3600:.0f} h ago)')
                 if not DRY: os.remove(f)
-        d = f'{out_root}/{vod}'
-        if os.path.isdir(d) and not glob.glob(f'{d}/clip*.mp4') and not DRY:
-            shutil.rmtree(d, ignore_errors=True)
-        # raw VOD sections: only when every clip of that VOD is posted > 24 h ago
-        cj = f'{WORK}/{vod}/clips.json'
-        raw_d = os.path.expanduser(f'~/clips/raw/{vod}')
-        if os.path.isdir(raw_d) and os.path.exists(cj):
-            ids = [c['id'] for c in json.load(open(cj)).get('clips', [])]
-            if ids and all(i in clips and now - clips[i] >= POSTED_TTL_H * 3600 for i in ids):
-                log(f'delete raw sections {raw_d}')
-                if not DRY: shutil.rmtree(raw_d, ignore_errors=True)
+        if os.path.isdir(d) and not os.listdir(d) and not DRY:
+            os.rmdir(d)
 
 clean_posted()
 
