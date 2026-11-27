@@ -5,6 +5,7 @@
 """Schreibt clips.json für einen kurzen GTA-Clip: Facecam oben, Spiel unten, Hook vorn.
 
 Der stärkste Moment wird Cold Open (max. 3 s), der Rest endet als Payoff.
+Hook und Titel nutzen ein kurzes Zitat aus dem Aufbau, wenn eines passt.
 Der Spielausschnitt lässt das untere Chat-Band weg (Standard 22 Prozent).
 Die Facecam setzt dieses Skript nicht: die kommt von detect_facecam.py.
 
@@ -13,19 +14,19 @@ Exit: 0 ok, 2 Eingabe oder Clip kürzer als 8 s.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import _lib
-import log_clip
 
 CHAT_BAND = 0.22
-HOOKS = {
-    "short": ["Sekunde, was war das", "Das kam aus dem Nichts"],
-    "long": ["Damit hat hier keiner gerechnet", "Kurz still, dann kippt es"],
-}
+HOOK_MAX_CHARS = 40
+HOOK_CONTEXT_S = 8
+FILLER = frozenset("aber ach alles also auch bitte bro chat damit danke dass deine doch egal eine einen "
+                   "einfach genau gleich gott hallo heute hier irgendwie jetzt keiner leute nicht noch okay "
+                   "schau schon sehr sind sowas warte weil weiter wenn wieder wirklich wurde wieso zusammen".split())
 
 
 def frame_size(meta: dict[str, Any]) -> tuple[int, int]:
@@ -81,28 +82,66 @@ def segments(duration: float, moment: float, max_clip: float) -> list[dict[str, 
     ]
 
 
-def pick_hook(seed: str, weights: dict[str, dict[str, float]] | None) -> str:
-    hook_weights = (weights or {}).get("hook") or {}
-    best = max(HOOKS, key=lambda name: (hook_weights.get(name, 1.0), name))
-    if hook_weights.get("short", 1.0) == hook_weights.get("long", 1.0):
-        pool = HOOKS["short"] + HOOKS["long"]
-    else:
-        pool = HOOKS[best]
-    digest = int(hashlib.sha256(seed.encode("utf-8")).hexdigest()[:8], 16)
-    return pool[digest % len(pool)]
+def transcript_segments(work: Path) -> list[dict]:
+    """Only use transcripts for the currently selected source sections."""
+    sections_path = work / "sections.json"
+    if not sections_path.is_file():
+        return []
+    found = []
+    for section in _lib.read_json(sections_path).get("sections", []):
+        sid = section.get("id")
+        if not isinstance(sid, str) or not re.fullmatch(r"s[0-9]+-[0-9]+", sid):
+            continue
+        path = work / "transcripts" / f"{sid}.json"
+        try:
+            if not path.is_file():
+                continue
+            data = _lib.read_json(path)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        records = data.get("segments") if isinstance(data, dict) else None
+        if isinstance(records, list):
+            found.extend(record for record in records if isinstance(record, dict))
+    return found
+
+
+def pick_quote(transcript: list[dict], main: dict, moment: float) -> str | None:
+    """Use short, verbatim setup dialogue, not a guess at what the picture shows."""
+    start = main["start"]
+    end = min(main["end"], start + HOOK_CONTEXT_S, moment)
+    choices = []
+    for segment in transcript:
+        a, b, text = (segment.get(key) for key in ("s", "e", "text"))
+        if isinstance(a, bool) or isinstance(b, bool):
+            continue
+        if not (isinstance(a, (int, float)) and isinstance(b, (int, float)) and start <= a < b <= end):
+            continue
+        if not isinstance(text, str) or re.search(r"[\x00-\x1f]|https?://|www\.", text, re.I):
+            continue
+        for sentence in re.split(r"(?<=[.!?…])\s+", text.strip()):
+            quote = " ".join(sentence.split()).strip('„“”"').rstrip(".")
+            if not all(ch.isalnum() or ch in " .,!?…:;’'„“”\"-–" for ch in quote):
+                continue
+            words = re.findall(r"[^\W\d_]+", quote.casefold())
+            distinct = set(words)
+            context = {word for word in distinct if len(word) >= 4} - FILLER
+            if 3 <= len(words) <= 8 and len(distinct) >= 3 and len(quote) <= HOOK_MAX_CHARS and context:
+                choices.append((-len(context), a, quote))
+    return min(choices)[2] if choices else None
 
 
 def captions(login: str, hook: str) -> dict[str, str]:
     credit = f"Clip: @{login} auf Twitch"
+    lead = hook if hook.endswith(("!", "?", "…")) else f"{hook}."
     return {
-        "youtube": f"{hook}. {credit} #Shorts #gta6",
-        "tiktok": f"{hook}. {credit} #gta6 #{login} #gaming",
-        "instagram": f"{hook}. {credit} #gta6 #{login} #reels",
+        "youtube": f"{lead} {credit} #Shorts #gta6",
+        "tiktok": f"{lead} {credit} #gta6 #{login} #gaming",
+        "instagram": f"{lead} {credit} #gta6 #{login} #reels",
     }
 
 
 def build_plan(meta: dict[str, Any], source: dict[str, Any], candidates: list[dict],
-               settings: dict[str, Any], weights: dict[str, dict[str, float]] | None) -> dict[str, Any]:
+               settings: dict[str, Any], transcript: list[dict]) -> dict[str, Any]:
     duration = float(meta.get("duration_s") or 0)
     if duration < 8:
         raise ValueError(f"Clip ist {duration:.1f} s, unter 8 s")
@@ -115,7 +154,10 @@ def build_plan(meta: dict[str, Any], source: dict[str, Any], candidates: list[di
     else:
         moment = duration / 2
         cand_id = None
-    hook = pick_hook(str(source.get("twitch_clip_id") or meta.get("vod_id") or login), weights)
+    cut = segments(duration, moment, float(settings.get("max_clip_s") or 60))
+    quote = pick_quote(transcript, cut[-1], moment) if cand_id is not None else None
+    hook = quote or f"{login} spielt GTA 6"
+    title = f"{login} in GTA 6: „{quote}“" if quote else hook
     width, height = frame_size(meta)
     current = (settings.get("layout") or {}).get("game")
     return {
@@ -124,9 +166,9 @@ def build_plan(meta: dict[str, Any], source: dict[str, Any], candidates: list[di
         "clips": [{
             "id": "clip01",
             "candidate": cand_id,
-            "segments": segments(duration, moment, float(settings.get("max_clip_s") or 60)),
+            "segments": cut,
             "hook": hook,
-            "title": "GTA 6, und dann das #Shorts",
+            "title": f"{title} #Shorts",
             "captions": captions(login, hook),
             "commentary": "Gleich kippt die Runde.",
             "vo": "Gleich kippt die Runde.",
@@ -153,15 +195,8 @@ def main() -> None:
     cands = _lib.read_json(work / "candidates.json") if (work / "candidates.json").is_file() else {}
     cfg, warnings = _lib.load_config()
     settings = _lib.streamer_settings(cfg, meta.get("streamer") or source.get("login"))
-    weights: dict[str, dict[str, float]] = {"duration": {}, "hook": {}}
-    if log_clip.db_path().is_file():
-        con = log_clip.connect()
-        try:
-            weights = log_clip.lesson_weights(con)
-        finally:
-            con.close()
     try:
-        plan = build_plan(meta, source, cands.get("candidates") or [], settings, weights)
+        plan = build_plan(meta, source, cands.get("candidates") or [], settings, transcript_segments(work))
     except ValueError as exc:
         _lib.fail(str(exc), _lib.EXIT_INVALID)
     if args.dry_run:
