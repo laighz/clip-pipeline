@@ -169,6 +169,24 @@ def sample_sprite(sprite: Sprite, poses: list[Pose | None]) -> tuple[Sprite, tup
     return exposure.convert("RGBA"), (left, top)
 
 
+def load_apple_sprites(glyphs: list[str], assets: Path, scratch: Path) -> dict[str, Sprite]:
+    """Rasterize Apple Color Emoji glyphs without substituting another font."""
+    from PIL import Image
+
+    sprites = {}
+    with tempfile.TemporaryDirectory(dir=scratch, prefix="apple-emoji-") as tmp:
+        subprocess.run(["swift", str(assets / "apple-emoji.swift"), tmp, *glyphs],
+                       check=True, capture_output=True, timeout=45)
+        for i, glyph in enumerate(glyphs):
+            with Image.open(Path(tmp) / f"{i}.png") as source:
+                rgba = source.convert("RGBA")
+                bounds = rgba.getchannel("A").getbbox()
+                if not bounds:
+                    raise OSError("Apple Color Emoji rendered an empty sprite")
+                sprites[glyph] = rgba.crop(bounds)
+    return sprites
+
+
 def render_overlay(ffmpeg: str, cues: list[Cue], rconf: dict[str, Any], output: Path, assets: Path) -> None:
     """Rasterize only the transparent band, then encode it losslessly with alpha."""
     from PIL import Image
@@ -185,18 +203,7 @@ def render_overlay(ffmpeg: str, cues: list[Cue], rconf: dict[str, Any], output: 
     # Trail behind the current pose; never show an emoji before the spoken keyword.
     offsets = [SHUTTER_FRAMES / fps * (1 - i / (SHUTTER_SAMPLES - 1)) for i in range(SHUTTER_SAMPLES)]
     cues = sorted(cues, key=lambda cue: cue.start)
-    glyphs = {glyph: i for i, glyph in enumerate(dict.fromkeys(c.glyph for c in cues))}
-    with tempfile.TemporaryDirectory(dir=output.parent, prefix="apple-emoji-") as tmp:
-        subprocess.run(["swift", str(assets / "apple-emoji.swift"), tmp, *glyphs],
-                       check=True, capture_output=True, timeout=45)
-        sprites = {}
-        for glyph, i in glyphs.items():
-            with Image.open(Path(tmp) / f"{i}.png") as source:
-                rgba = source.convert("RGBA")
-                bounds = rgba.getchannel("A").getbbox()
-                if not bounds:
-                    raise OSError("Apple Color Emoji rendered an empty sprite")
-                sprites[glyph] = rgba.crop(bounds)
+    sprites = load_apple_sprites(list(dict.fromkeys(c.glyph for c in cues)), assets, output.parent)
     blank = Image.new("RGBA", (width, height))
     empty_frame = blank.tobytes()
     frames = math.ceil(max(c.end for c in cues) * fps)

@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11,<3.14"
-# dependencies = ["pyyaml>=6", "Pillow>=10; sys_platform == 'darwin'"]
+# dependencies = ["pyyaml>=6", "Pillow>=10.1"]
 # ///
 """Rendert Clips aus clips.json als 1080x1920-MP4 mit Wort-Untertiteln, Hook und loudnorm.
 
@@ -9,7 +9,7 @@ Pro Clip:
     da ohnehin neu kodiert wird), Cold Open zuerst, dann concat
   - Layout: stack (Facecam oben, Spiel unten; braucht layout.facecam in streamers.yaml),
     blur (ganzes Bild mittig auf unscharfem Hintergrund) oder center (mittiger 9:16-Ausschnitt)
-  - Untertitel: ASS mit aktiver Wortfarbe; auf macOS auf Wunsch animierte Apple Emojis; Hook oben
+  - Untertitel: ASS mit aktiver Wortfarbe; auf macOS animierte Apple Emojis; weißer Hook-Titel am Anfang
   - Ton: loudnorm I=-16, 48 kHz AAC
   - Encoder: h264_amf (Windows) oder h264_videotoolbox (macOS) laut state/env.json, sonst libx264.
     Scheitert der Hardware-Encoder, automatisch libx264
@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+import tempfile
 import time
 from contextlib import suppress
 from pathlib import Path
@@ -31,6 +32,7 @@ from typing import Any
 
 import _lib
 import caption_emoji
+import hook_card
 
 
 # ------------------------------------------------------------------ ASS
@@ -114,7 +116,8 @@ def group_subtitles(words: list[dict], limit: int, two_lines: bool) -> list[list
 
 
 def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
-              credit: str | None, *, emoji_cues: list[caption_emoji.Cue] | None = None) -> tuple[str, float, int]:
+              credit: str | None, *, emoji_cues: list[caption_emoji.Cue] | None = None,
+              burn_hook: bool = True) -> tuple[str, float, int]:
     template = (_lib.ASSETS_DIR / "caption-style.ass").read_text(encoding="utf-8")
     events: list[str] = []
     out_t = 0.0
@@ -173,8 +176,10 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
             phrase += 1
         out_t += b - a
     hook_s = min(float(rconf.get("hook_duration_s", 4.0)), out_t)
-    if hook_s > 0:
-        events.insert(0, f"Dialogue: 1,{ass_time(0)},{ass_time(hook_s)},Hook,,0,0,0,,{ass_text(clip['hook'])}")
+    if burn_hook and hook_s > 0:
+        text, _ = hook_card.title_parts(clip.get("hook") or "", emojis=False)
+        if text:
+            events.insert(0, f"Dialogue: 1,{ass_time(0)},{ass_time(hook_s)},Hook,,0,0,0,,{ass_text(text)}")
     if credit and rconf.get("burn_credit"):
         events.append(f"Dialogue: 1,{ass_time(0)},{ass_time(out_t)},Credit,,0,0,0,,{ass_text(credit)}")
     return template.rstrip() + "\n" + "\n".join(events) + "\n", out_t, n_words
@@ -231,7 +236,8 @@ def find_section(sections: list[dict], a: float, b: float) -> dict:
 
 def build_cmd(ffmpeg: str, clip: dict[str, Any], sections: list[dict], ass_path: Path, out: Path,
               layout: str, rconf: dict[str, Any], facecam: list[int] | None, game: list[int] | None,
-              encoder: str, emoji_overlay: Path | None = None) -> list[str]:
+              encoder: str, emoji_overlay: Path | None = None,
+              hook_overlay: tuple[Path, float] | None = None) -> list[str]:
     inputs: list[str] = []
     graph: list[str] = []
     for i, seg in enumerate(clip["segments"]):
@@ -252,6 +258,15 @@ def build_cmd(ffmpeg: str, clip: dict[str, Any], sections: list[dict], ass_path:
         _, _, x, y = caption_emoji.overlay_geometry(rconf)
         graph.append(f"[{vlab}][{n}:v]overlay=x={x}:y={y}:eof_action=pass:repeatlast=0[with_emoji]")
         vlab = "with_emoji"
+    if hook_overlay is not None:
+        image, seconds = hook_overlay
+        inputs += ["-i", str(image)]
+        i = n + int(emoji_overlay is not None)
+        width, height = int(rconf["width"]), int(rconf["height"])
+        y = round(hook_card.TOP * height / caption_emoji.BASE_H)
+        graph.append(f"[{i}:v]format=rgba,scale=max(2\\,round(iw*{width}/{caption_emoji.BASE_W})):-1[hook_card]")
+        graph.append(f"[{vlab}][hook_card]overlay=x=(W-w)/2:y={y}:enable='lt(t,{seconds:.6f})'[with_hook]")
+        vlab = "with_hook"
     graph.append(f"[{vlab}]subtitles=filename={_lib.escape_filter_path(ass_path)}[vout]")
     graph.append(f"[{alab}]loudnorm={rconf['loudnorm']},aresample=48000[aout]")
     return [ffmpeg, "-hide_banner", "-loglevel", "warning", "-y", *inputs,
@@ -350,9 +365,17 @@ def main() -> None:
         ass_path = rdir / f"{cid}.ass"
         emoji_cues: list[caption_emoji.Cue] | None = [] if use_apple_emoji else None
         try:
-            ass, total, n_words = build_ass(clip, words, rconf, credit, emoji_cues=emoji_cues)
+            hook_s = float(rconf.get("hook_duration_s", 4.0))
+            hook_text, hook_glyph = hook_card.title_parts(clip.get("hook") or "",
+                                                        emojis=rconf.get("hook_emojis", True))
+            use_hook_card = hook_s > 0 and bool(hook_text)
+            ass, total, n_words = build_ass(clip, words, rconf, credit, emoji_cues=emoji_cues,
+                                            burn_hook=not use_hook_card)
             overlay = rdir / f"{cid}.emoji.mov" if emoji_cues else None
-            cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, use_game, encoder, overlay)
+            hook_s = min(hook_s, total)
+            intended_hook = (rdir / f"{cid}.hook.png", hook_s) if use_hook_card else None
+            cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, use_game, encoder,
+                            overlay, intended_hook)
         except (KeyError, TypeError, ValueError) as exc:
             _lib.fail(f"{cid}: clips.json passt nicht zu den Abschnitten ({exc}). Erst validate_clips.py.",
                       _lib.EXIT_INVALID)
@@ -368,6 +391,27 @@ def main() -> None:
         rdir.mkdir(parents=True, exist_ok=True)
         odir.mkdir(parents=True, exist_ok=True)
         t0 = time.monotonic()
+        hook_image = None
+        if use_hook_card:
+            sprite = None
+            if hook_glyph and caption_emoji.apple_ready():
+                try:
+                    sprite = caption_emoji.load_apple_sprites([hook_glyph], _lib.ASSETS_DIR, rdir)[hook_glyph]
+                except (OSError, ImportError, subprocess.SubprocessError):
+                    warnings.append(f"{cid}: Hook-Emoji nicht verfügbar, Titelkarte bleibt ohne Emoji")
+            try:
+                card = hook_card.make_card(hook_text, sprite)
+                with tempfile.NamedTemporaryFile(dir=rdir, prefix=f"{cid}.hook-", suffix=".png", delete=False) as f:
+                    hook_image = Path(f.name)
+                    card.save(f, format="PNG")
+            except (OSError, ValueError, ImportError) as exc:
+                warnings.append(f"{cid}: Titelkarte nicht verfügbar ({exc}), nutze ASS-Hook")
+                if hook_image is not None:
+                    discard_emoji_overlay(hook_image)
+                    hook_image = None
+                ass, total, n_words = build_ass(clip, words, rconf, credit,
+                                                emoji_cues=[] if emoji_cues is not None else None)
+        hook_overlay = (hook_image, hook_s) if hook_image is not None else None
         if overlay is not None and emoji_cues:
             try:
                 if overlay.is_dir():
@@ -379,20 +423,25 @@ def main() -> None:
                 discard_emoji_overlay(overlay)
                 overlay = None
                 emoji_cues = None
-                ass, total, n_words = build_ass(clip, words, rconf, credit)
-                cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, use_game, encoder)
-        ass_path.write_text(ass, encoding="utf-8")
-        used = encoder
-        proc = _lib.run(cmd, timeout=1800)
-        fallback = None
-        if proc.returncode != 0 and encoder in ("amf", "videotoolbox"):
-            fallback = (proc.stderr or "").strip()[-300:]
-            log.warning("%s: %s scheiterte, versuche libx264", cid, encoder)
-            used = "x264"
-            cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, use_game, "x264", overlay)
+                ass, total, n_words = build_ass(clip, words, rconf, credit, burn_hook=hook_image is None)
+        try:
+            ass_path.write_text(ass, encoding="utf-8")
+            used = encoder
+            cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, use_game, used,
+                            overlay, hook_overlay)
             proc = _lib.run(cmd, timeout=1800)
-        if overlay is not None:
-            discard_emoji_overlay(overlay)
+            fallback = None
+            if proc.returncode != 0 and encoder in ("amf", "videotoolbox"):
+                fallback = (proc.stderr or "").strip()[-300:]
+                log.warning("%s: %s scheiterte, versuche libx264", cid, encoder)
+                used = "x264"
+                cmd = build_cmd(ffmpeg, clip, sections, ass_path, part, layout, rconf, cam, use_game, used,
+                                overlay, hook_overlay)
+                proc = _lib.run(cmd, timeout=1800)
+        finally:
+            for auxiliary in (overlay, hook_image):
+                if auxiliary is not None:
+                    discard_emoji_overlay(auxiliary)
         if proc.returncode != 0 or not part.is_file():
             part.unlink(missing_ok=True)   # halbe Datei weg, damit sie nie als fertig gilt
             _lib.fail(f"{cid}: ffmpeg fehlgeschlagen: {(proc.stderr or '').strip()[-800:]}", _lib.EXIT_ERROR,

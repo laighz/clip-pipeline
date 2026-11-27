@@ -2,7 +2,7 @@
 ; Vorlage für render_clip.py. Nur [V4+ Styles] anpassen, Events erzeugt das Skript.
 ; Farben: &HAABBGGRR (Alpha, Blau, Grün, Rot). Gelb = &H0000E5FF.
 ; Caption: Wort-Untertitel, aktives Wort in SecondaryColour (gelb).
-; Hook: Text oben in den ersten Sekunden (BorderStyle 3 = Kasten hinter dem Text).
+; Hook: ASS-Fallback, wenn die gerundete Titelkarte nicht gebaut werden kann.
 ; Credit: kleine Quellenzeile unten (nur wenn render.burn_credit: true).
 Title: clipping-streams captions
 ScriptType: v4.00+
@@ -17,7 +17,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Caption,Arial Black,86,&H00FFFFFF,&H0000E5FF,&H00000000,&H78000000,-1,0,0,0,100,100,0,0,1,7,3,2,70,70,560,1
 Style: PhraseCaption,Arial Black,78,&H00FFFFFF,&H0000E5FF,&H00000000,&H78000000,-1,0,0,0,100,100,0,0,1,7,3,8,75,75,1180,1
 ; Hook sitzt auf der Naht zwischen Facecam-Streifen (oben, ~608 px) und Spielbild, nicht über dem Gesicht.
-Style: Hook,Arial Black,66,&H00FFFFFF,&H00FFFFFF,&H00101010,&HC8101010,-1,0,0,0,100,100,0,0,3,20,0,8,80,80,520,1
+Style: Hook,Arial,66,&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,20,0,8,80,80,520,1
 Style: Credit,Arial,34,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,40,40,60,1
 
 [Events]
