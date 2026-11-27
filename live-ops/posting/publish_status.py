@@ -55,6 +55,13 @@ def media_revision(media):
     return sha.hexdigest()
 
 
+def voiceover_ready(media, revision):
+    try:
+        return media.with_suffix('.vo-ready').read_text().strip() == revision
+    except (OSError, UnicodeError):
+        return False
+
+
 def rows(path):
     try:
         with path.open() as f:
@@ -126,7 +133,7 @@ def save_attempt(live, vod, clip, revision, platform, known):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('action', choices=['status', 'target', 'confirm', 'complete'])
+    p.add_argument('action', choices=['status', 'target', 'confirm', 'complete', 'vo-ready', 'has-submission'])
     p.add_argument('live', type=Path)
     p.add_argument('vod')
     p.add_argument('clip')
@@ -135,12 +142,21 @@ def main():
     if not valid_key(a.vod, a.clip) or (a.action != 'complete' and len(a.platforms) != 1):
         p.error('invalid clip or platform count')
     out_root = Path.home() / 'clips/out'
+    media = out_root / a.vod / (a.clip + '.mp4')
     try:
-        revision = media_revision(out_root / a.vod / (a.clip + '.mp4'))
+        revision = media_revision(media)
     except OSError as exc:
         print(f'Media unavailable: {exc}')
         return 2
     path = a.live / 'publish_attempts.jsonl'
+    if a.action == 'vo-ready':
+        if voiceover_ready(media, revision):
+            print(revision)
+            return 0
+        return 2
+    if a.action == 'has-submission':
+        return 0 if any((r['vod'], r['clip']) == (a.vod, a.clip)
+                        and r.get('state') in ('attempted', 'confirmed') for r in rows(path)) else 1
     history = history_for(a.live, a.vod, a.clip, revision)
     done = {r['platform']: r['ts'] for r in history if r.get('state') == 'confirmed'
             and type(r.get('ts')) is int}

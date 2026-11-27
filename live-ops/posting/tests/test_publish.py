@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,6 +22,47 @@ def load(name):
 
 
 class Ledger(unittest.TestCase):
+    def test_direct_publisher_requires_voiceover_receipt_even_with_expected_hash(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'HOME': folder}), \
+                patch.object(sys, 'path', [str(ROOT), *sys.path]):
+            out = Path(folder) / 'clips/out/example'
+            out.mkdir(parents=True)
+            media = out / 'clip01.mp4'
+            media.write_bytes(b'rendered video')
+            (out / 'clip01.txt').write_text('--- X ---\nCaption\n')
+            publisher = load('publish_one')
+            rev = publisher.media_revision(media)
+            with patch.object(sys, 'argv', ['publish_one.py', 'X', 'example', 'clip01', '--expected-revision', rev]), \
+                    patch.object(publisher.h, 'connect', side_effect=AssertionError('browser reached')):
+                self.assertEqual(publisher.main(), 2)
+
+    def test_legacy_backup_and_stale_voiceover_receipt_never_submit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            live = home / '.hermes/cache/scratch/live'
+            live.mkdir(parents=True)
+            (live.parent / 'pw').mkdir()
+            out = home / 'clips/out/example'
+            out.mkdir(parents=True)
+            clip = out / 'clip01.mp4'
+            clip.write_bytes(b'current video')
+            (out / 'clip01.novo.mp4').write_bytes(b'old backup')
+            bin_dir = home / 'bin'
+            bin_dir.mkdir()
+            uv = bin_dir / 'uv'
+            uv.write_text('#!/bin/sh\ntouch "$HOME/uploader-was-called"\nexit 2\n')
+            uv.chmod(0o700)
+            env = {**os.environ, 'HOME': folder, 'SKIP': 'YT|TT|IG|SC',
+                   'POST_BROWSER_LOCK': str(home / 'lock'),
+                   'PATH': str(bin_dir) + os.pathsep + os.environ['PATH']}
+            command = ['bash', str(ROOT / 'post_all.sh'), 'example', 'clip01']
+            for stale in (False, True):
+                if stale:
+                    (out / 'clip01.vo-ready').write_text('0' * 64 + '\n')
+                run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+                self.assertFalse((home / 'uploader-was-called').exists())
+
     def test_blocked_request_is_not_a_successful_empty_batch(self):
         with tempfile.TemporaryDirectory() as home:
             live = Path(home) / '.hermes/cache/scratch/live'
@@ -80,6 +122,7 @@ class Ledger(unittest.TestCase):
             bin_dir = tmp / 'bin'
             (out / 'clip01.mp4').touch()
             bin_dir.mkdir()
+            (out / 'clip01.vo-ready').write_text(load('publish_status').media_revision(out / 'clip01.mp4') + '\n')
             uv = bin_dir / 'uv'
             uv.write_text('#!/bin/bash\nif [[ "$*" == *--verify-only* ]]; then\n'
                           '  python3 "$POST_TEST_ROOT/publish_status.py" confirm "$HOME/.hermes/cache/scratch/live" example clip01 X || exit 1\n'

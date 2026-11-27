@@ -57,11 +57,19 @@ if [ ! -f "$HOME/clips/out/$V/$C.mp4" ]; then
   echo 'Missing rendered MP4; no upload attempted'
   exit 2
 fi
-if [ ! -f "$HOME/clips/out/$V/$C.novo.mp4" ]; then
-  /bin/zsh -c 'python3 "$@"' _ "$ROOT/live-ops/live/vo_mix.py" "$V" "$C" >> "$LIVE/vo.log" 2>&1 || {
-    echo 'Voice-over failed; no upload attempted (see vo.log)'; exit 2;
-  }
+first_platform=${order%%$'\n'*}
+if [ ! -e "$HOME/clips/out/$V/$C.novo.mp4" ] && [ ! -e "$HOME/clips/out/$V/$C.vo-ready" ]; then
+  status has-submission "$first_platform"
+  prior=$?
+  if [ "$prior" = 1 ]; then
+    /bin/zsh -c 'CLIPS_HOME="$HOME/clips" python3 "$@"' _ "$ROOT/live-ops/live/vo_mix.py" "$V" "$C" >> "$LIVE/vo.log" 2>&1 || {
+      echo 'Voice-over failed; no upload attempted (see vo.log)'; exit 2;
+    }
+  elif [ "$prior" != 0 ]; then
+    exit 2
+  fi
 fi
+prepared_revision=$(status vo-ready "$first_platform") || prepared_revision=''
 for P in $order; do status target "$P" || exit 2; done
 unlock
 for P in $order; do
@@ -129,7 +137,12 @@ for P in $order; do
   case "$state" in
     confirmed) echo "$P: already verified"; unlock; continue ;;
     pending) opts=(--verify-only) ;;
-    new) ;;
+    new)
+      if [ -z "$prepared_revision" ] || [ "$(status vo-ready "$P")" != "$prepared_revision" ]; then
+        echo "$P: voice-over and subtitles not verified for this MP4; no upload attempted"
+        unlock; continue
+      fi
+      opts=(--expected-revision "$prepared_revision") ;;
     *) exit 1 ;;
   esac
   echo "$P $(date +%H:%M): $state"

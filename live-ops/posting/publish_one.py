@@ -9,7 +9,7 @@ import time
 from urllib.parse import urlsplit
 
 import h
-from publish_status import append, history_for, media_revision, normalize, save_attempt, tiktok_row, valid_key
+from publish_status import append, history_for, media_revision, normalize, save_attempt, tiktok_row, valid_key, voiceover_ready
 from playwright.sync_api import Error as BrowserError
 
 YT_STUDIO = 'https://studio.youtube.com/channel/UCwCaCEXf-nQ0SbLcGi2Bv5Q/videos/short'
@@ -148,6 +148,7 @@ def main():
     parser.add_argument('vod')
     parser.add_argument('clip')
     parser.add_argument('--verify-only', action='store_true')
+    parser.add_argument('--expected-revision')
     args = parser.parse_args()
     if not valid_key(args.vod, args.clip):
         parser.error('Invalid clip identifier')
@@ -168,9 +169,15 @@ def main():
     except OSError as exc:
         parser.error(f'Media unavailable: {exc}')
     live = Path.home() / '.hermes/cache/scratch/live'
+    if args.expected_revision is not None and revision != args.expected_revision:
+        print('Render changed after preparation; no upload attempted')
+        return 2
     attempts = [r for r in history_for(live, args.vod, args.clip, revision)
                 if r['platform'] == plat and r.get('state') == 'attempted']
     verify_only = args.verify_only or bool(attempts)
+    if not verify_only and not voiceover_ready(media, revision):
+        print('Voice-over and subtitles not verified for this MP4; no upload attempted')
+        return 2
     p, b, ctx = h.connect()
     proofs = []
     managed = {}
@@ -184,8 +191,8 @@ def main():
         nonlocal submitted
         if submitted:
             raise RuntimeError('Refusing to submit twice')
-        if media_revision(media) != revision:
-            raise RuntimeError('Media changed before submission')
+        if media_revision(media) != revision or not voiceover_ready(media, revision):
+            raise RuntimeError('Media or voice-over confirmation changed before submission')
         save_attempt(live, args.vod, args.clip, revision, plat, known)
         submitted = True
 
