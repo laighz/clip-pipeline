@@ -47,6 +47,8 @@ render:
   facecam_height: 608       # Höhe des Facecam-Streifens oben im stack-Layout
   hook_duration_s: 4.0      # so lange steht der Hook oben im Bild
   words_per_caption: 3      # Wörter pro Untertitel-Einblendung
+  caption_emojis: true      # macOS: Apple Emoji Pop-Out / Burst an den Untertitelecken
+  emoji_words_per_caption: 5 # Maximale Wortzahl im Emoji-Stil, verteilt auf bis zu zwei Zeilen
   loudnorm: "I=-16:TP=-1.5:LRA=11"
   x264: {crf: 20, preset: veryfast}
 
