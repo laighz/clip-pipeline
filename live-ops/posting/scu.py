@@ -23,7 +23,9 @@ spotlight_only = '''() => {
             .filter(e => !e.children.length && e.textContent.trim() === text && visible(e));
         return headers.length === 1 ? headers[0].parentElement : null;
     };
-    const controls = '[role="checkbox"], [role="radio"], [role="switch"], input[type="checkbox"], input[type="radio"]';
+    // Unknown destination controls must block posting even when they have no checkbox-like role.
+    const controls = '[role="checkbox"], [role="radio"], [role="switch"], input[type="checkbox"], ' +
+        'input[type="radio"], [aria-checked], [aria-selected], [aria-pressed]';
     const check = (group, expected, optional = {}) => {
         if (!group) return false;
         const items = [...group.querySelectorAll(controls)]

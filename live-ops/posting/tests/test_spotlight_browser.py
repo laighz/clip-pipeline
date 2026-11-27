@@ -54,6 +54,11 @@ class SpotlightBrowserTest(unittest.TestCase):
             fixtures = [(form(), True), (form(story='true'), False), (form(saved='true'), False),
                         (form(spotlight='false'), False), (form(saved='mixed'), False),
                         (form(extra=checkbox('other', 'Unknown', 'true')), False),
+                        (form(extra='<button id="friends" aria-pressed="true">Friends</button>'), False),
+                        (form(extra='<button id="friends" aria-selected="true">Friends</button>'), False),
+                        (form(extra='<button id="friends" aria-checked="true">Friends</button>'), False),
+                        (form(extra='<button hidden aria-pressed="true">Friends</button>'), True),
+                        (form()[:-6] + '<button id="album" aria-selected="true">Album</button></div>', False),
                         (form().replace('id="publicProfile"', 'id="missing"'), False)]
             for html, expected in fixtures:
                 with self.subTest(html=html):
