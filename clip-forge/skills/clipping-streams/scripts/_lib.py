@@ -159,7 +159,7 @@ def load_sections(work: Path) -> list[dict[str, Any]]:
     return read_json(path).get("sections", []) if path.is_file() else []
 
 
-def load_words(work: Path) -> list[dict[str, Any]]:
+def load_words(work: Path, *, include_language: bool = False) -> list[dict[str, Any]]:
     """Wörter (VOD-Zeit) aus den Transkripten der AKTUELLEN Abschnitte, nach Zeit sortiert.
 
     Transkripte ersetzter Abschnitte bleiben liegen, werden aber ignoriert. Überlappen
@@ -174,7 +174,12 @@ def load_words(work: Path) -> list[dict[str, Any]]:
     words: list[dict[str, Any]] = []
     for f in files:
         if f.is_file():
-            words += read_json(f).get("words", [])
+            transcript = read_json(f)
+            records = transcript.get("words", [])
+            language = transcript.get("language")
+            if include_language and isinstance(language, str) and language and language != "auto":
+                records = [{**w, "transcript_language": language} for w in records]
+            words.extend(records)
     words.sort(key=lambda w: (w["s"], w["e"]))
     unique: list[dict[str, Any]] = []
     for w in words:

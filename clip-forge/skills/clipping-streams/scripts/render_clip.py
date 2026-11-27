@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11,<3.14"
-# dependencies = ["pyyaml>=6", "Pillow>=10.1"]
+# dependencies = ["pyyaml>=6", "Pillow>=10.1", "text2num==3.1.0"]
 # ///
 """Rendert Clips aus clips.json als 1080x1920-MP4 mit Wort-Untertiteln, Hook und loudnorm.
 
@@ -27,11 +27,13 @@ import subprocess
 import tempfile
 import time
 from contextlib import suppress
+from itertools import groupby
 from pathlib import Path
 from typing import Any
 
 import _lib
 import caption_emoji
+import caption_numbers
 import hook_card
 
 
@@ -108,8 +110,8 @@ def group_subtitles(words: list[dict], limit: int, two_lines: bool) -> list[list
 
     start = 0
     for i, w in enumerate(words, 1):
-        if (i == len(words) or w["w"].rstrip().endswith((".", "!", "?", "…"))
-                or words[i]["s"] - w["e"] > .55):
+        if (i == len(words) or w.get("caption_sentence_end", w["w"].rstrip().endswith(caption_numbers.SENTENCE_END))
+                or words[i]["s"] - w["e"] > caption_numbers.PAUSE_S):
             append_sentence(start, i)
             start = i
     return groups
@@ -117,7 +119,7 @@ def group_subtitles(words: list[dict], limit: int, two_lines: bool) -> list[list
 
 def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
               credit: str | None, *, emoji_cues: list[caption_emoji.Cue] | None = None,
-              burn_hook: bool = True) -> tuple[str, float, int]:
+              burn_hook: bool = True, language: str = "de") -> tuple[str, float, int]:
     template = (_lib.ASSETS_DIR / "caption-style.ass").read_text(encoding="utf-8")
     events: list[str] = []
     out_t = 0.0
@@ -130,8 +132,11 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
     last_shown: dict[str, float] = {}
     for seg in clip["segments"]:
         a, b = float(seg["start"]), float(seg["end"])
-        seg_words = [w for w in words if w["s"] >= a - 0.05 and w["e"] <= b + 0.05]
-        groups = group_subtitles(seg_words, per, styled)
+        seg_words = [w for w in words if a - .05 <= w["s"] < b and a < w["e"] <= b + .05]
+        n_words += len(seg_words)
+        display = [w for lang, run in groupby(seg_words, key=lambda w: w.get("transcript_language") or language)
+                   for w in caption_numbers.display_words(list(run), lang, bounds=(a, b))]
+        groups = group_subtitles(display, per, styled)
         for gi, group in enumerate(groups):
             texts = [ass_text(w["w"].upper() if upper else w["w"]) for w in group]
             next_start = groups[gi + 1][0]["s"] if gi + 1 < len(groups) else None
@@ -172,7 +177,6 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
                 caption = r"\N".join((" ".join(parts[:split]), " ".join(parts[split:]))) if split > 0 else " ".join(parts)
                 events.append(f"Dialogue: 0,{ass_time(out_t + start - a)},{ass_time(out_t + end - a)},"
                               f"{style},,0,0,0,,{caption}")
-            n_words += len(group)
             phrase += 1
         out_t += b - a
     hook_s = min(float(rconf.get("hook_duration_s", 4.0)), out_t)
@@ -313,6 +317,7 @@ def main() -> None:
     meta = _lib.read_json(work / "meta.json") if (work / "meta.json").is_file() else {}
     cfg, warnings = _lib.load_config()
     st = _lib.streamer_settings(cfg, meta.get("streamer"))
+    language = str(st.get("language") or "de")
     rconf = cfg["render"]
     use_apple_emoji = rconf.get("caption_emojis", True) and caption_emoji.apple_ready()
     layout_cfg = st.get("layout") or {}
@@ -339,7 +344,7 @@ def main() -> None:
         clips = [c for c in clips if c.get("id") in wanted]
         if not clips:
             _lib.fail(f"Clip(s) {sorted(wanted)} nicht in clips.json", _lib.EXIT_INVALID)
-    words = _lib.load_words(work)
+    words = _lib.load_words(work, include_language=True)
 
     ffmpeg = _lib.require_tool("ffmpeg")
     odir = _lib.out_dir(args.vod_id)
@@ -370,7 +375,7 @@ def main() -> None:
                                                         emojis=rconf.get("hook_emojis", True))
             use_hook_card = hook_s > 0 and bool(hook_text)
             ass, total, n_words = build_ass(clip, words, rconf, credit, emoji_cues=emoji_cues,
-                                            burn_hook=not use_hook_card)
+                                            burn_hook=not use_hook_card, language=language)
             overlay = rdir / f"{cid}.emoji.mov" if emoji_cues else None
             hook_s = min(hook_s, total)
             intended_hook = (rdir / f"{cid}.hook.png", hook_s) if use_hook_card else None
@@ -410,7 +415,8 @@ def main() -> None:
                     discard_emoji_overlay(hook_image)
                     hook_image = None
                 ass, total, n_words = build_ass(clip, words, rconf, credit,
-                                                emoji_cues=[] if emoji_cues is not None else None)
+                                                emoji_cues=[] if emoji_cues is not None else None,
+                                                language=language)
         hook_overlay = (hook_image, hook_s) if hook_image is not None else None
         if overlay is not None and emoji_cues:
             try:
@@ -423,7 +429,8 @@ def main() -> None:
                 discard_emoji_overlay(overlay)
                 overlay = None
                 emoji_cues = None
-                ass, total, n_words = build_ass(clip, words, rconf, credit, burn_hook=hook_image is None)
+                ass, total, n_words = build_ass(clip, words, rconf, credit,
+                                                burn_hook=hook_image is None, language=language)
         try:
             ass_path.write_text(ass, encoding="utf-8")
             used = encoder
