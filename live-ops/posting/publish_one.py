@@ -246,6 +246,9 @@ def main():
             except (OSError, BrowserError) as exc:
                 print(f'Trace could not be saved: {exc}', file=sys.stderr)
         for page in managed.values():
+            if plat == 'SC' and not confirmed:
+                print('Snapchat tab left open for inspection; check the profile before any manual retry.')
+                continue
             try:
                 page.close()
             except BrowserError:

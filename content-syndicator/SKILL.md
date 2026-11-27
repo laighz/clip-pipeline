@@ -17,6 +17,8 @@ Fertige Clips aus `~/clips/out/<vod-id>/` auf YouTube, TikTok, Instagram, Snapch
 uv und ein einmal installiertes Playwright-Chromium (`uv run --with playwright python -m playwright install chromium`). Die Anmeldung macht der User im Fenster. Keine Passwörter erfragen oder eintippen. Das Profil liegt unter `~/clips/state/browser`. Datenordner ist `~/clips`, sonst `CLIPS_HOME` oder `--home`.
 
 ## Instructions
+Für Twitch-Clips aus `clip-pipeline` gilt die [Posting-Referenz der Pipeline](../live-ops/skills/clip-selection-and-posting/references/posting.md). Die folgenden Befehle sind für separate Aufträge mit Content-Syndicator, nicht als Fallback für diese Pipeline.
+
 Jedes Skript über run_script starten, im Ordner dieser Datei. Der erste Aufruf zeigt nur die Texte aus `clipXX.txt`. `--publish` lädt hoch. Vor jedem `--publish` erst `login.py --check`. Fehlt eine Plattform, das sagen und sie per `--platforms` weglassen.
 
 YouTube, TikTok und Instagram bekommen den Text aus ihrem Block. X und Snapchat bekommen den TikTok-Text, gekürzt.

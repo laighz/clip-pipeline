@@ -5,6 +5,7 @@ import sys
 from playwright.sync_api import TimeoutError as BrowserTimeout
 from h import connect, get_page, mark_submission
 from publish_status import normalize
+from tiktok_popup import confirm_pending_check
 
 vod, clip = sys.argv[1:3]
 base = Path.home() / 'clips/out' / vod / clip
@@ -19,7 +20,13 @@ editor.wait_for(state='visible', timeout=60000)
 hint = page.get_by_role('dialog').get_by_role('button', name='Got it', exact=True)
 if hint.count() == 1 and hint.is_visible():
     hint.click()
-editor.fill(caption)
+# Draft.js can reinsert the prefilled filename if replacement is one input event.
+editor.click()
+editor.press('ControlOrMeta+a')
+editor.press('Backspace')
+if normalize(editor.inner_text(timeout=5000)):
+    raise RuntimeError('TikTok caption editor did not clear')
+page.keyboard.insert_text(caption)
 editor.press('Tab')
 if normalize(editor.inner_text(timeout=5000)) != normalize(caption):
     raise RuntimeError('TikTok caption differs from the intended caption')
@@ -27,7 +34,8 @@ button = page.locator('button[data-e2e="post_video_button"]')
 button.click(trial=True, timeout=90000)
 mark_submission()
 button.click(timeout=5000)
-# Never dismiss a content-check or duplicate prompt blindly.
+if confirm_pending_check(page):
+    print('TikTok: confirmed the known pending-check dialog.')
 try:
     page.wait_for_url(re.compile(r'/tiktokstudio/content(?:[/?]|$)'), timeout=10000)
 except BrowserTimeout:

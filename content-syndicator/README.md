@@ -2,7 +2,7 @@
 
 Der Skill dieses Ordners ist [SKILL.md](SKILL.md). Der Einstieg für Schneiden und Posten liegt eine Ebene höher, in der `SKILL.md` des clip-pipeline-Ordners.
 
-Die Pipeline schneidet die Clips und legt sie ab. Dieses Kommando postet sie danach auf YouTube, TikTok, Instagram, Snapchat und X.
+Dieses Kommando ist für separate Aufträge mit Content-Syndicator. Twitch-Clips aus `clip-pipeline` folgen der [Posting-Referenz der Pipeline](../live-ops/skills/clip-selection-and-posting/references/posting.md), nicht den Upload-Beispielen hier.
 
 Die Caption wird nicht neu geschrieben. Sie steht schon in `clipXX.txt` neben der MP4:
 

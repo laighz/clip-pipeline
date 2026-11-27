@@ -1,4 +1,5 @@
 import importlib.util
+import ast
 import json
 import os
 from pathlib import Path
@@ -118,6 +119,22 @@ class Ledger(unittest.TestCase):
 
 
 class Readback(unittest.TestCase):
+    def test_unverified_snapchat_tab_is_left_open_for_review(self):
+        tree = ast.parse((ROOT / 'publish_one.py').read_text())
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        cleanup = next(n for n in ast.walk(main) if isinstance(n, ast.For)
+                       and ast.unparse(n.iter) == 'managed.values()')
+        for platform, proof, should_close in [('SC', None, False), ('SC', 'verified', True), ('TT', None, True)]:
+            with self.subTest(platform=platform, proof=proof):
+                class Page:
+                    closed = False
+                    def close(self):
+                        self.closed = True
+                page = Page()
+                exec(compile(ast.Module(body=[cleanup], type_ignores=[]), '<page cleanup>', 'exec'),
+                     {'managed': {platform: page}, 'plat': platform, 'confirmed': proof, 'BrowserError': RuntimeError})
+                self.assertEqual(page.closed, should_close)
+
     def test_tiktok_only_accepts_exact_public_caption_in_post_list(self):
         confirm = load('publish_status').tiktok_row
         caption = 'Dolores hat Hausverbot #gta6'

@@ -16,23 +16,44 @@ page = get_page(ctx, 'snapchat.com')
 page.goto('https://profile.snapchat.com/', wait_until='domcontentloaded', timeout=30000)
 page.get_by_text('Post to Snapchat', exact=True).click(timeout=30000)
 page.locator('input[type=file]').first.set_input_files(str(base.with_suffix('.mp4')), timeout=30000)
-dest = page.get_by_text('Post to Spotlight', exact=True)
-dest.wait_for(state='visible', timeout=60000)
 spotlight_only = '''() => {
-    const spotlight = /^(?:Post to )?Spotlight$/i;
-    const story = /^(?:Post to )?(?:Public |My )?Stor(?:y|ies)$/i;
-    const controls = '[aria-selected], [aria-checked], [aria-pressed], input[type="radio"], input[type="checkbox"]';
-    const name = e => (e.getAttribute('aria-label') || e.labels?.[0]?.textContent || e.textContent).trim();
-    const state = e => e.getAttribute('aria-checked') ?? e.getAttribute('aria-selected') ??
-        e.getAttribute('aria-pressed') ?? (e instanceof HTMLInputElement ? String(e.checked) : null);
-    const groups = [...document.querySelectorAll('[role="radiogroup"], [role="tablist"], [role="group"], fieldset')];
-    const matches = groups.map(g => [...g.querySelectorAll(controls)].filter(e => e.getClientRects().length))
-        .filter(items => items.length >= 2 && items.some(e => spotlight.test(name(e))) && items.some(e => story.test(name(e))));
-    return matches.length > 0 && matches.every(items => items.filter(e => spotlight.test(name(e))).length === 1 &&
-        items.every(e => spotlight.test(name(e)) ? state(e) === 'true' : state(e) === 'false'));
+    const visible = el => el.getClientRects().length && getComputedStyle(el).visibility === 'visible';
+    const section = text => {
+        const headers = [...document.querySelectorAll('div, h2, h3')]
+            .filter(e => !e.children.length && e.textContent.trim() === text && visible(e));
+        return headers.length === 1 ? headers[0].parentElement : null;
+    };
+    const controls = '[role="checkbox"], [role="radio"], [role="switch"], input[type="checkbox"], input[type="radio"]';
+    const check = (group, expected, optional = {}) => {
+        if (!group) return false;
+        const items = [...group.querySelectorAll(controls)]
+            .filter(e => e.getAttribute('aria-hidden') !== 'true' && visible(e));
+        if (new Set(items.map(e => e.id)).size !== items.length) return false;
+        return Object.keys(expected).every(id => items.some(e => e.id === id)) && items.every(e => {
+            const state = e.getAttribute('aria-checked');
+            if (Object.hasOwn(optional, e.id)) return state === 'true' || state === 'false';
+            if (!Object.hasOwn(expected, e.id)) return false;
+            const [label, desired] = expected[e.id];
+            const labels = [...group.querySelectorAll('label')].filter(l => l.htmlFor === e.id && visible(l));
+            return state === desired && labels.length === 1 &&
+                [...labels[0].querySelectorAll('span')].some(s => s.textContent.trim() === label && visible(s));
+        });
+    };
+    return check(section('Choose your posting destination'), {
+        spotlight: ['Post to Spotlight', 'true'], publicStory: ['Post to Public Story', 'false'],
+    }, {'spotlight.isSaved': true}) && check(section('Save to your Public Profile'), {
+        publicProfile: ['Save to a Public Profile', 'false'],
+    });
 }'''
-if not page.evaluate(spotlight_only):
-    dest.click()
+# Enabling Spotlight can also select the separate saved-profile destination.
+for id_, desired in (('spotlight', 'true'), ('publicStory', 'false'), ('publicProfile', 'false')):
+    control = page.locator(f'button[role="checkbox"][id="{id_}"]')
+    control.wait_for(state='visible', timeout=30000)
+    before = control.get_attribute('aria-checked')
+    if before not in {'true', 'false'}:
+        raise RuntimeError(f'Cannot read Snapchat checkbox: {id_}')
+    if before != desired:
+        control.click()
 page.wait_for_function(spotlight_only, timeout=10000)
 description = page.get_by_role('textbox', name=re.compile(r'Add a description'))
 if not description.count():
@@ -46,12 +67,17 @@ if receipt.count() and receipt.first.is_visible():
     raise RuntimeError('Stale Snapchat receipt before submitting')
 post = page.get_by_role('button', name='Post', exact=True)
 post.click(trial=True, timeout=90000)
+# The form can select the saved-profile destination after the preview becomes ready.
+saved = page.locator('button[role="checkbox"][id="publicProfile"]')
+if saved.get_attribute('aria-checked') == 'true':
+    saved.click()
+    post.click(trial=True, timeout=10000)
 if not page.evaluate(spotlight_only):
     raise RuntimeError('Spotlight is no longer the only selected destination')
 mark_submission()
 post.click(timeout=5000)
 try:
-    receipt.wait_for(state='visible', timeout=60000)
+    receipt.wait_for(state='visible', timeout=120000)
 except BrowserTimeout:
     print('No explicit Spotlight receipt.')
 else:

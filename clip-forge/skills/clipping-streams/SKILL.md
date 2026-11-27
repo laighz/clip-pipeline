@@ -38,11 +38,10 @@ uv run --quiet "<skill>/scripts/status.py" --brief
 3. Chat nur über die Skripte. Sie speichern Zählwerte. Chat-JSON nie selbst
    laden, lesen oder anzeigen. Keine Nutzernamen in Dateien oder Antworten.
 4. Nicht selbst hochladen und keine Upload-Seite bedienen. Ergebnis dieses
-   Skills sind Dateien in `~/clips/out/<vod>/`. Posten nur über
-   [content-syndicator](../../../content-syndicator/SKILL.md), und nur wenn der User
-   ausdrücklich posten will.
+   Skills sind Dateien in `~/clips/out/<vod>/`. Die Veröffentlichung ist ein
+   separater Schritt nach der [Posting-Referenz](../../../live-ops/skills/clip-selection-and-posting/references/posting.md).
 5. Jeder Clip braucht Eigenleistung: Hook, Kommentar-Skript, Credit-Zeile.
-6. Nur die Skripte unten, plus das Post-Kommando in content-syndicator.
+6. Für den Schnitt nur die Skripte unten.
    Keine eigenen ffmpeg- oder yt-dlp-Befehle. Scheitert
    ein Skript: Fehlermeldung lesen, dann `references/troubleshooting.md`.
 7. Live-Aufnahme nur starten, wenn der User ausdrücklich aufnehmen lässt.
@@ -123,7 +122,7 @@ uv run --quiet "<skill>/scripts/detect_facecam.py" --vod-id <vod-id> --clip clip
 - [ ] clips.json                        - [ ] detect_facecam pro Clip
 - [ ] validate_clips Exit 0             - [ ] render --dry-run, dann echt
 - [ ] verify_clip Exit 0                - [ ] log_clip
-- [ ] Übergabe                          - [ ] Posten nur auf Wunsch, über content-syndicator
+- [ ] Übergabe; Veröffentlichung separat behandeln
 ```
 
 ## Weg A: Twitch-VOD
@@ -234,19 +233,7 @@ Sonst Gameplay-Rechteck messen und neu rendern (`--force --clip clip01`).
 Kommentar-Skript enthält, was verworfen wurde und warum. Voice-over mischt
 dieser Skill nicht ein.
 
-Posten macht [content-syndicator](../../../content-syndicator/SKILL.md), der Ordner neben
-clip-forge: `<root>/content-syndicator`. `<root>` ist der Ordner `clip-pipeline`,
-also der Ordner, in dem diese Datei unter `clip-forge/skills/clipping-streams` liegt. Er liest
-`~/clips/out/<vod-id>/clipXX.mp4` und die Caption aus der danebenliegenden
-`clipXX.txt`. Ohne `--publish` nur zeigen. `--publish` nur, wenn der User
-ausdrücklich posten will. Die Anmeldung im Browser macht der User, keine
-Passwörter.
-
-```bash
-cd "<root>/content-syndicator"
-uv run scripts/post_clips.py --vod-id <vod-id>
-uv run scripts/post_clips.py --vod-id <vod-id> --publish
-```
+Für die Veröffentlichung der gerenderten Clips gilt die [Posting-Referenz](../../../live-ops/skills/clip-selection-and-posting/references/posting.md).
 
 ## GTA-6-Clips
 
@@ -290,13 +277,13 @@ uv run --quiet "<skill>/scripts/transcribe.py" --vod-id <rec_id>
 
 Dann Auswahl, an vorhandene `clips.json` anhängen, validieren, nur den neuen Clip
 rendern, prüfen, loggen. Dem User den Clip melden und in die Schleife zurück.
-Posten nicht aus der Schleife; dafür am Ende content-syndicator, nur auf Wunsch.
+Nicht aus der Schnittschleife posten.
 Nach dem Stopp auf Wunsch die übrigen Momente wie ein VOD schneiden.
 Fenster am Transkript ausrichten, nicht stur am Spike: Werbepausen verschieben
 Chat und Bild.
 
 ## Purpose
-Highlights in Twitch-VODs, lokalen Aufnahmen und, nur auf ausdrücklichen Wunsch, in einem laufenden Twitch-Stream finden und als vertikale Shorts schneiden. Auch auf Englisch und ohne die Wörter Skill oder ffmpeg. Nicht für YouTube- oder Kick-VODs und nicht zum bloßen Kürzen eines einzelnen Videos. Posten macht content-syndicator.
+Highlights in Twitch-VODs, lokalen Aufnahmen und, nur auf ausdrücklichen Wunsch, in einem laufenden Twitch-Stream finden und als vertikale Shorts schneiden. Auch auf Englisch und ohne die Wörter Skill oder ffmpeg. Nicht für YouTube- oder Kick-VODs und nicht zum bloßen Kürzen eines einzelnen Videos.
 
 ## Instructions
 `<skill>` ist der Ordner dieser Datei. Jedes Skript über run_script starten: `uv run --quiet "<skill>/scripts/<name>.py"`. Exit-Codes und JSON-Fehler nicht ignorieren. validate_clips wiederholen, bis die Validierung besteht.
@@ -332,7 +319,7 @@ Live-Aufnahme startet nur, wenn der User sie ausdrücklich verlangt. Kein Posten
 Exit 1, 3, 4 oder 5: `references/troubleshooting.md`. Ein validate-Fehler bleibt ein error, bis validate_clips Exit 0 meldet. Renderfehler: `references/ffmpeg-recipes.md`.
 
 ## Referenzen
-- [content-syndicator](../../../content-syndicator/SKILL.md) zum Posten der fertigen Clips.
+- [Posting-Referenz](../../../live-ops/skills/clip-selection-and-posting/references/posting.md) für fertige Clips.
 - `references/platform-rules.md` vor den Captions.
 - `references/config-schema.md` wenn die Config meckert oder der User Einstellungen ändert.
 - `references/ffmpeg-recipes.md` wenn render_clip scheitert.

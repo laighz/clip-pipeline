@@ -6,9 +6,8 @@ Instagram Originalitaets-Pruefung. Viele Reposts in kurzer Zeit auf einem jungen
 
 ## Umgesetzt (Standard)
 - Takt: 1 Clip pro Stunde ueber alle Streams, +-0-5 min Zufall (`evaluate.py`, gap 60 min).
-- Versatz: `post_all.py --stagger` -> zufaellige Plattform-Reihenfolge, 10-60 min zwischen Plattformen.
-- Eigener Text + eigene Hashtags pro Plattform (Bloecke YOUTUBE/TIKTOK/INSTAGRAM/X/SNAPCHAT,
-  `cdp_helper.add_platform_blocks`). 3-4 Hashtags: Game (`#gta6`) + Streamer + 1 Nische. Kein `#fyp`, keine Hashtag-Waende.
+- Plattform-Versatz und Zielauswahl folgen dem [Veröffentlichungsweg](posting.md).
+- Caption- und Hashtag-Regeln stehen unter [Posten](posting.md).
 - Nur Clips mit klarer Pointe; reine Cutscenes/Gameplay ohne Reaktion nie (auch Publisher-Copyright).
 - Gesperrte Plattform: Flag-Datei `<KEY>_BLOCKED`, alle Laeufe ueberspringen sie, bis der User Freigabe meldet.
 - Instagram nach einer Sperre: max. 3 Reels / 24 h, mind. 4 h Abstand (Zaehler `live/ig_posts.log`).
