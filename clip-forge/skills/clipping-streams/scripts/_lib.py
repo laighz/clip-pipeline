@@ -388,6 +388,7 @@ RENDER_DEFAULTS: dict[str, Any] = {
     "facecam_height": 608,        # Höhe des Facecam-Streifens im Stack-Layout
     "hook_duration_s": 4.0,
     "words_per_caption": 3,
+    "caption_emoji_catalog": True,
     "loudnorm": "I=-16:TP=-1.5:LRA=11",
     "audio_bitrate": "160k",
     "x264": {"crf": 20, "preset": "veryfast"},

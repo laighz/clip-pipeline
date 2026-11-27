@@ -68,6 +68,11 @@ uv run --quiet "<skill>/scripts/status.py" --brief
   den kurzen Clip ausliefern, nicht mit Stille auffüllen.
 - Hook ohne Emojis, max. ~40 Zeichen, verrät die Pointe nicht. Er sitzt auf der
   Naht zwischen Facecam und Spielbild, nicht über dem Gesicht.
+- Untertitel-Emojis: Der [Emoji-Katalog](assets/emoji-catalog.md) enthält die Namen,
+  Suchbegriffe und Einsatzideen. Suche mit `python3 scripts/emoji_catalog.py "Biber"`.
+  `render.caption_emoji_catalog: false` deaktiviert Katalognamen als Auslöser,
+  behält aber die kuratierten Begriffe bei. `render.caption_emojis: false` schaltet
+  die Pop-outs ganz aus.
 - Ein 1080p-Stream hat ~2,7 GB/h. fetch_signals lädt nur den Ton. Video kommt
   erst für die Fenster, die du wirklich schneidest. Davor transkribierst du die
   Kandidaten aus der Tonspur (`--from-audio`).

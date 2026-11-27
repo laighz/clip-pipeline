@@ -34,6 +34,7 @@ from typing import Any
 import _lib
 import caption_emoji
 import caption_numbers
+import emoji_catalog
 import hook_card
 
 
@@ -119,7 +120,9 @@ def group_subtitles(words: list[dict], limit: int, two_lines: bool) -> list[list
 
 def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
               credit: str | None, *, emoji_cues: list[caption_emoji.Cue] | None = None,
-              burn_hook: bool = True, language: str = "de") -> tuple[str, float, int]:
+              burn_hook: bool = True, language: str = "de",
+              candidate_glyphs: set[str] | None = None,
+              unavailable_glyphs: set[str] | None = None) -> tuple[str, float, int]:
     template = (_lib.ASSETS_DIR / "caption-style.ass").read_text(encoding="utf-8")
     events: list[str] = []
     out_t = 0.0
@@ -137,6 +140,10 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
         display = [w for lang, run in groupby(seg_words, key=lambda w: w.get("transcript_language") or language)
                    for w in caption_numbers.display_words(list(run), lang, bounds=(a, b))]
         groups = group_subtitles(display, per, styled)
+        hits = dict(emoji_catalog.hits(display, caption_emoji.WORDS, bounds=(a, b), default_language=language,
+                                       catalog_enabled=rconf.get("caption_emoji_catalog", True),
+                                       unavailable=unavailable_glyphs, candidates=candidate_glyphs)) if styled else {}
+        group_offset = 0
         for gi, group in enumerate(groups):
             texts = [ass_text(w["w"].upper() if upper else w["w"]) for w in group]
             next_start = groups[gi + 1][0]["s"] if gi + 1 < len(groups) else None
@@ -146,8 +153,8 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
             style = "PhraseCaption" if styled else "Caption"
             matches: list[tuple[str, float, float]] = []
             if styled and split >= 0:
-                for w in group:
-                    glyph = caption_emoji.word_emoji(w["w"])
+                for wi, w in enumerate(group):
+                    glyph = hits.get(group_offset + wi)
                     start = out_t + max(a, w["s"]) - a
                     end = min(start + .78, out_t + group_end - a)
                     if glyph and end - start >= .12 and start - last_shown.get(glyph, -10) >= 2.5:
@@ -177,6 +184,7 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
                 caption = r"\N".join((" ".join(parts[:split]), " ".join(parts[split:]))) if split > 0 else " ".join(parts)
                 events.append(f"Dialogue: 0,{ass_time(out_t + start - a)},{ass_time(out_t + end - a)},"
                               f"{style},,0,0,0,,{caption}")
+            group_offset += len(group)
             phrase += 1
         out_t += b - a
     hook_s = min(float(rconf.get("hook_duration_s", 4.0)), out_t)
@@ -369,13 +377,15 @@ def main() -> None:
             warnings.append(f"{cid}: keine Facecam bekannt, nutze blur")
         ass_path = rdir / f"{cid}.ass"
         emoji_cues: list[caption_emoji.Cue] | None = [] if use_apple_emoji else None
+        candidate_glyphs: set[str] = set()
         try:
             hook_s = float(rconf.get("hook_duration_s", 4.0))
             hook_text, hook_glyph = hook_card.title_parts(clip.get("hook") or "",
                                                         emojis=rconf.get("hook_emojis", True))
             use_hook_card = hook_s > 0 and bool(hook_text)
             ass, total, n_words = build_ass(clip, words, rconf, credit, emoji_cues=emoji_cues,
-                                            burn_hook=not use_hook_card, language=language)
+                                            burn_hook=not use_hook_card, language=language,
+                                            candidate_glyphs=candidate_glyphs)
             overlay = rdir / f"{cid}.emoji.mov" if emoji_cues else None
             hook_s = min(hook_s, total)
             intended_hook = (rdir / f"{cid}.hook.png", hook_s) if use_hook_card else None
@@ -401,7 +411,9 @@ def main() -> None:
             sprite = None
             if hook_glyph and caption_emoji.apple_ready():
                 try:
-                    sprite = caption_emoji.load_apple_sprites([hook_glyph], _lib.ASSETS_DIR, rdir)[hook_glyph]
+                    sprite = caption_emoji.load_apple_sprites([hook_glyph], _lib.ASSETS_DIR, rdir).get(hook_glyph)
+                    if sprite is None:
+                        warnings.append(f"{cid}: Hook-Emoji nicht verfügbar, Titelkarte bleibt ohne Emoji")
                 except (OSError, ImportError, subprocess.SubprocessError):
                     warnings.append(f"{cid}: Hook-Emoji nicht verfügbar, Titelkarte bleibt ohne Emoji")
             try:
@@ -422,7 +434,18 @@ def main() -> None:
             try:
                 if overlay.is_dir():
                     raise IsADirectoryError(f"{overlay} ist ein Verzeichnis")
-                caption_emoji.render_overlay(ffmpeg, emoji_cues, rconf, overlay, _lib.ASSETS_DIR)
+                sprites = caption_emoji.load_apple_sprites(sorted(candidate_glyphs), _lib.ASSETS_DIR, rdir)
+                missing = candidate_glyphs.difference(sprites)
+                if missing:
+                    warnings.append(f"{cid}: {len(missing)} Emoji-Motiv(e) von Apple Color Emoji nicht unterstützt")
+                    emoji_cues = []
+                    ass, total, n_words = build_ass(clip, words, rconf, credit, emoji_cues=emoji_cues,
+                                                    burn_hook=hook_image is None, language=language,
+                                                    unavailable_glyphs=missing)
+                if emoji_cues:
+                    caption_emoji.render_overlay(ffmpeg, emoji_cues, rconf, overlay, _lib.ASSETS_DIR, sprites=sprites)
+                else:
+                    overlay = None
             except (OSError, ImportError, subprocess.SubprocessError, caption_emoji.UnsupportedFrameRate) as exc:
                 warnings.append(f"{cid}: Apple Emojis nicht verfügbar ({type(exc).__name__}: {exc}); "
                                 "rendere mit Standarduntertiteln")

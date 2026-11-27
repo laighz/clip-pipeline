@@ -178,16 +178,19 @@ def load_apple_sprites(glyphs: list[str], assets: Path, scratch: Path) -> dict[s
         subprocess.run(["swift", str(assets / "apple-emoji.swift"), tmp, *glyphs],
                        check=True, capture_output=True, timeout=45)
         for i, glyph in enumerate(glyphs):
-            with Image.open(Path(tmp) / f"{i}.png") as source:
+            path = Path(tmp) / f"{i}.png"
+            if not path.is_file():
+                continue  # Swift skips glyphs not covered by the local Apple font.
+            with Image.open(path) as source:
                 rgba = source.convert("RGBA")
                 bounds = rgba.getchannel("A").getbbox()
-                if not bounds:
-                    raise OSError("Apple Color Emoji rendered an empty sprite")
-                sprites[glyph] = rgba.crop(bounds)
+                if bounds:
+                    sprites[glyph] = rgba.crop(bounds)
     return sprites
 
 
-def render_overlay(ffmpeg: str, cues: list[Cue], rconf: dict[str, Any], output: Path, assets: Path) -> None:
+def render_overlay(ffmpeg: str, cues: list[Cue], rconf: dict[str, Any], output: Path, assets: Path,
+                   *, sprites: dict[str, Sprite] | None = None) -> list[Cue]:
     """Rasterize only the transparent band, then encode it losslessly with alpha."""
     from PIL import Image
 
@@ -203,7 +206,11 @@ def render_overlay(ffmpeg: str, cues: list[Cue], rconf: dict[str, Any], output: 
     # Trail behind the current pose; never show an emoji before the spoken keyword.
     offsets = [SHUTTER_FRAMES / fps * (1 - i / (SHUTTER_SAMPLES - 1)) for i in range(SHUTTER_SAMPLES)]
     cues = sorted(cues, key=lambda cue: cue.start)
-    sprites = load_apple_sprites(list(dict.fromkeys(c.glyph for c in cues)), assets, output.parent)
+    if sprites is None:
+        sprites = load_apple_sprites(list(dict.fromkeys(c.glyph for c in cues)), assets, output.parent)
+    cues = [c for c in cues if c.glyph in sprites]
+    if not cues:
+        return []
     blank = Image.new("RGBA", (width, height))
     empty_frame = blank.tobytes()
     frames = math.ceil(max(c.end for c in cues) * fps)
@@ -234,3 +241,4 @@ def render_overlay(ffmpeg: str, cues: list[Cue], rconf: dict[str, Any], output: 
         proc.stdin.close()
         if proc.wait(timeout=15) != 0:
             raise OSError("ffmpeg could not encode the emoji overlay")
+    return cues

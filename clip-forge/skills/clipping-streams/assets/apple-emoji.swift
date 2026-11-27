@@ -15,6 +15,13 @@ for (index, glyph) in args.dropFirst(2).enumerated() {
                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     let line = CTLineCreateWithAttributedString(NSAttributedString(string: glyph,
         attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font]))
+    let runs = CTLineGetGlyphRuns(line) as! [CTRun]
+    // Unsupported sequences can fall back to another font or several unrelated glyphs.
+    guard runs.count == 1, let run = runs.first, CTRunGetGlyphCount(run) == 1 else { continue }
+    let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] as! CTFont
+    var actualGlyph: CGGlyph = 0
+    CTRunGetGlyphs(run, CFRange(location: 0, length: 1), &actualGlyph)
+    guard actualGlyph != 0, CTFontCopyPostScriptName(runFont) as String == "AppleColorEmoji" else { continue }
     ctx.textMatrix = .identity
     ctx.textPosition = CGPoint(x: 37, y: 65)
     CTLineDraw(line, ctx)
