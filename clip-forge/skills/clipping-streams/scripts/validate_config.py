@@ -147,6 +147,8 @@ def validate(cfg: dict[str, Any]) -> tuple[list[str], list[str]]:
     check_number(errors, "render.words_per_caption", rd.get("words_per_caption"), 1, 8, True)
     if not isinstance(rd.get("caption_emoji_catalog", True), bool):
         errors.append("render.caption_emoji_catalog: true oder false erwartet")
+    if rd.get("caption_emoji_mode", "reviewed") not in ("reviewed", "legacy"):
+        errors.append("render.caption_emoji_mode: reviewed oder legacy erwartet")
 
     streamers = cfg["streamers"]
     if not isinstance(streamers, list):

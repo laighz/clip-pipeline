@@ -18,7 +18,8 @@ def render(*tokens, unavailable_glyphs=None, candidate_glyphs=None, **rconf):
     cues = []
     options = {k: v for k, v in {"unavailable_glyphs": unavailable_glyphs,
                                   "candidate_glyphs": candidate_glyphs}.items() if v is not None}
-    ass, _, _ = build_ass({"id": "x", "segments": [{"start": 0, "end": 4}]}, words, rconf, None,
+    ass, _, _ = build_ass({"id": "x", "segments": [{"start": 0, "end": 4}]}, words,
+                         {"caption_emoji_mode": "legacy", **rconf}, None,
                          emoji_cues=cues, **options)
     return ass, cues
 

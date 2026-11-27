@@ -68,11 +68,11 @@ uv run --quiet "<skill>/scripts/status.py" --brief
   den kurzen Clip ausliefern, nicht mit Stille auffüllen.
 - Hook ohne Emojis, max. ~40 Zeichen, verrät die Pointe nicht. Er sitzt auf der
   Naht zwischen Facecam und Spielbild, nicht über dem Gesicht.
-- Untertitel-Emojis: Der [Emoji-Katalog](assets/emoji-catalog.md) enthält die Namen,
-  Suchbegriffe und Einsatzideen. Suche mit `python3 scripts/emoji_catalog.py "Biber"`.
-  `render.caption_emoji_catalog: false` deaktiviert Katalognamen als Auslöser,
-  behält aber die kuratierten Begriffe bei. `render.caption_emojis: false` schaltet
-  die Pop-outs ganz aus.
+- Untertitel-Emojis sind eine Entscheidung pro Clip, keine Wortliste. Der Agent
+  prüft den fertigen Schnitttext und bei bildabhängigen Pointen die passenden
+  Frames. Nur tatsächlichen Mehrwert markieren; bei Zweifel `choices: []`.
+  Der [Emoji-Katalog](assets/emoji-catalog.md) dient als Suchhilfe (`python3 scripts/emoji_catalog.py "Biber"`).
+  `render.caption_emojis: false` schaltet Caption-Pop-outs aus; Titelkarte und Upload-Text sind separat.
 - Ein 1080p-Stream hat ~2,7 GB/h. fetch_signals lädt nur den Ton. Video kommt
   erst für die Fenster, die du wirklich schneidest. Davor transkribierst du die
   Kandidaten aus der Tonspur (`--from-audio`).
@@ -221,6 +221,22 @@ Vor den Captions `references/platform-rules.md` lesen. Credit-Zeile aus der Conf
 steht vor den Hashtags. `layout` optional: auto, stack, blur, center. `facecam` optional
 pro Clip als `[x, y, w, h]`, normalerweise von `detect_facecam.py --write-clip` gesetzt.
 
+Vor dem ersten Render pro ausgewähltem Clip `review_caption_emoji.py --vod-id <vod-id> --clip clip01 --context`
+ausführen. Der betreuende Agent entscheidet anhand dieser Wort-IDs und des benötigten Bildkontexts.
+Mit `--decision-file <datei>` ein Objekt wie `{"revision":"<aus --context>","choices":[{"id":12,"emoji":"🎮"}]}`
+oder `choices: []` speichern. Das Skript schreibt den Beleg nach `emoji-reviews/<clip>.json`, getrennt
+von `clips.json`. Es übernimmt den Original-Wortanker; ändert sich der Schnitt oder das geschnittene
+Transkript, wird auch eine leere Entscheidung ungültig und muss neu geprüft werden.
+Maximal drei Marker, keine Spoiler, kein Pop-out über geducktem Originalton. Fehlende oder ungültige
+Entscheidungen ergeben im Standardmodus keine Pop-outs; die Untertitel bleiben erhalten.
+Der automatische GTA-Lauf führt denselben Review nach der Schnittvalidierung aus:
+Hermes erhält das geschnittene Transkript und, wenn verfügbar, drei Standbilder des ausgewählten
+Clips über eine Session ohne Tools im bereits laufenden Hermes-Gateway. Die gewählte Modellroute
+erhält diese Daten. Bei Verbindungsabbruch versucht das Skript, genau diesen Review abzubrechen;
+es entfernt das lokale Standbild und versucht begrenzt, die temporäre Session zu löschen. Schlägt
+das Löschen fehl, nennt die Warnung die Session-ID für die gezielte Bereinigung.
+Ist der Review nicht verfügbar, läuft der Render ohne Pop-outs weiter.
+
 ```bash
 uv run --quiet "<skill>/scripts/validate_clips.py" --vod-id <vod-id>
 uv run --quiet "<skill>/scripts/render_clip.py" --vod-id <vod-id> --dry-run
@@ -280,7 +296,7 @@ uv run --quiet "<skill>/scripts/fetch_sections.py" --vod-id <rec_id> --candidate
 uv run --quiet "<skill>/scripts/transcribe.py" --vod-id <rec_id>
 ```
 
-Dann Auswahl, an vorhandene `clips.json` anhängen, validieren, nur den neuen Clip
+Dann Auswahl, an vorhandene `clips.json` anhängen, validieren, Emoji-Kontext prüfen, nur den neuen Clip
 rendern, prüfen, loggen. Dem User den Clip melden und in die Schleife zurück.
 Nicht aus der Schnittschleife posten.
 Nach dem Stopp auf Wunsch die übrigen Momente wie ein VOD schneiden.
@@ -302,6 +318,7 @@ Highlights in Twitch-VODs, lokalen Aufnahmen und, nur auf ausdrücklichen Wunsch
 | detect_highlights.py | Kandidaten | --vod-id |
 | fetch_sections.py | Nur die gewählten Fenster laden | --vod-id, --candidates |
 | transcribe.py | Wort-Transkript | --vod-id, --language |
+| review_caption_emoji.py | Wort-IDs ausgeben und Kontextentscheidung speichern | --vod-id, --clip |
 | render_clip.py | Vertikalen Clip schreiben | --vod-id |
 | verify_clip.py | Auflösung, Lautheit, Untertitel | --vod-id |
 | log_clip.py | Ergebnis in clips.db | --vod-id |
