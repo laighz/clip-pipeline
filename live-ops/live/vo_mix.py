@@ -113,6 +113,18 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
         temp_work.mkdir(parents=True)
         for name in ('clips.json', 'sections.json'):
             shutil.copy2(work / name, temp_work / name)
+        emoji_review = work / 'emoji-reviews' / f'{clip}.json'
+        target = temp_work / 'emoji-reviews' / emoji_review.name
+        try:
+            if emoji_review.is_file():
+                review_bytes = emoji_review.read_bytes()
+                target.parent.mkdir()
+                # The per-mix stage is private. Publish only a complete receipt to the renderer.
+                pending = target.with_suffix('.tmp')
+                pending.write_bytes(review_bytes)
+                pending.replace(target)
+        except OSError:
+            pass  # The fingerprint below still rejects any changed render inputs.
         if (work / 'meta.json').is_file():
             shutil.copy2(work / 'meta.json', temp_work / 'meta.json')
         if (work / 'transcripts').is_dir():
@@ -123,8 +135,9 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
         encoder = sidecar.get('encoder', 'x264')
         if encoder not in {'amf', 'videotoolbox', 'x264'}:
             raise ValueError('Unbekannter Encoder im Original-Render')
+        flags = ['--reviewed-emoji-only'] if sidecar.get('reviewed_emoji_only') is True else []
         subprocess.run(['uv', 'run', '--quiet', str(SCRIPTS / 'render_clip.py'), '--vod-id', rec, '--clip', clip,
-                        '--encoder', encoder, '--voiceover-captions', str(info)], env=env, stdout=sys.stderr, check=True)
+                        '--encoder', encoder, '--voiceover-captions', str(info), *flags], env=env, stdout=sys.stderr, check=True)
         rendered = stage / 'out' / rec / f'{clip}.mp4'
         refreshed = json.loads(rendered.with_suffix('.json').read_text())
         if refreshed.get('render_input_sha256') != input_digest:

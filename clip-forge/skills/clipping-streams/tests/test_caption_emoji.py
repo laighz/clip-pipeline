@@ -15,13 +15,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from render_clip import build_ass  # pyright: ignore[reportMissingImports]
 from caption_emoji import motion  # pyright: ignore[reportMissingImports]
 import caption_emoji  # pyright: ignore[reportMissingImports]
+import caption_emoji_plan  # pyright: ignore[reportMissingImports]
 
 
 def render_words(*words, **config):
     records = [{"w": word, "s": i * .3, "e": (i + 1) * .3} for i, word in enumerate(words)]
     cues = []
     ass, duration, count = build_ass({"hook": "Test", "segments": [{"start": 0, "end": 5}]},
-                                     records, config, None, emoji_cues=cues)
+                                     records, {"caption_emoji_mode": "legacy", **config}, None, emoji_cues=cues)
     return ass, duration, count, cues
 
 
@@ -99,7 +100,7 @@ class CaptionEmojiTest(unittest.TestCase):
         def pop(i):
             cues = []
             clip = {"id": f"clip{i}", "hook": "Test", "segments": [{"start": 0, "end": 3}]}
-            build_ass(clip, [{"w": "Auto", "s": .2, "e": .5}], {}, None, emoji_cues=cues)
+            build_ass(clip, [{"w": "Auto", "s": .2, "e": .5}], {"caption_emoji_mode": "legacy"}, None, emoji_cues=cues)
             return cues[0]
 
         self.assertEqual(pop(10), pop(10))
@@ -118,7 +119,7 @@ class CaptionEmojiTest(unittest.TestCase):
             with self.subTest(clip=i):
                 clip = {"id": f"clip{i}", "hook": "Test", "segments": [{"start": 0, "end": 4}]}
                 cues = []
-                build_ass(clip, words, {}, None, emoji_cues=cues)
+                build_ass(clip, words, {"caption_emoji_mode": "legacy"}, None, emoji_cues=cues)
                 corners = [{(c.side, c.x > 540) for c in event} for _, event in groupby(cues, key=lambda c: c.start)]
                 self.assertEqual([len(event) for event in corners], [1, 1, 2, 2, 1, 1])
                 for previous, current in zip(corners, corners[1:]):
@@ -129,14 +130,14 @@ class CaptionEmojiTest(unittest.TestCase):
         for i in range(32):
             clip = {"id": f"clip{i}", "hook": "Test", "segments": [{"start": 10, "end": 11}, {"start": 1, "end": 3}]}
             cues = []
-            build_ass(clip, words, {}, None, emoji_cues=cues)
+            build_ass(clip, words, {"caption_emoji_mode": "legacy"}, None, emoji_cues=cues)
             self.assertNotEqual((cues[0].side, cues[0].x > 540), (cues[1].side, cues[1].x > 540))
 
     def test_icon_cues_follow_clip_order_not_vod_time(self):
         cues = []
         clip = {"hook": "Test", "segments": [{"start": 10, "end": 11}, {"start": 1, "end": 3}]}
         words = [{"w": "Auto", "s": 1.2, "e": 1.5}, {"w": "Feuer!", "s": 10.3, "e": 10.6}]
-        build_ass(clip, words, {}, None, emoji_cues=cues)
+        build_ass(clip, words, {"caption_emoji_mode": "legacy"}, None, emoji_cues=cues)
         self.assertEqual([c.glyph for c in cues], ["🔥", "🚗"])
         self.assertAlmostEqual(cues[0].start, .3)
         self.assertAlmostEqual(cues[1].start, 1.2)
@@ -208,21 +209,24 @@ class CaptionEmojiRenderTest(unittest.TestCase):
         subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=s=144x256:r=30",
                         "-f", "lavfi", "-i", "sine=frequency=440", "-t", "1", "-c:v", "libx264",
                         "-c:a", "aac", str(source)], check=True, capture_output=True, timeout=15)
-        (self.work / "clips.json").write_text(json.dumps({"clips": [
-            {"id": "clip01", "hook": "Test", "segments": [{"start": 0, "end": 1}]},
-        ]}), encoding="utf-8")
+        clip = {"id": "clip01", "hook": "Test", "segments": [{"start": 0, "end": 1}]}
+        (self.work / "clips.json").write_text(json.dumps({"clips": [clip]}), encoding="utf-8")
         (self.work / "sections.json").write_text(json.dumps({"sections": [
             {"id": "s0-1", "start": 0, "end": 1, "file_offset": 0, "file": str(source)},
         ]}), encoding="utf-8")
-        (self.work / "transcripts" / "s0-1.json").write_text(json.dumps({"words": [
-            {"w": "Auto", "s": .1, "e": .4},
-        ]}), encoding="utf-8")
+        words = [{"w": "Auto", "s": .1, "e": .4}]
+        (self.work / "transcripts" / "s0-1.json").write_text(json.dumps({"words": words}), encoding="utf-8")
+        review = caption_emoji_plan.review_path(self.work, "clip01")
+        review.parent.mkdir()
+        review.write_text(json.dumps({"revision": caption_emoji_plan.revision(clip, words),
+                                      "emoji_popouts": [{"segment": 0, "start": .1, "word": "Auto", "emoji": "🚗"}]}))
 
-    def render(self, fps):
+    def render(self, fps, *flags, mode="reviewed"):
         (self.home / "streamers.yaml").write_text(
-            f"render:\n  width: 144\n  height: 256\n  layout: center\n  fps: {fps}\n", encoding="utf-8")
+            f"render:\n  width: 144\n  height: 256\n  layout: center\n  fps: {fps}\n  caption_emoji_mode: {mode}\n",
+            encoding="utf-8")
         script = Path(__file__).resolve().parents[1] / "scripts" / "render_clip.py"
-        run = subprocess.run([sys.executable, str(script), "--vod-id", "emoji-test", "--encoder", "x264"],
+        run = subprocess.run([sys.executable, str(script), "--vod-id", "emoji-test", "--encoder", "x264", *flags],
                              env={**os.environ, "CLIPS_HOME": str(self.home)}, capture_output=True, text=True,
                              timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr or run.stdout)
@@ -244,6 +248,27 @@ class CaptionEmojiRenderTest(unittest.TestCase):
         self.assertEqual(result["clips"][0]["caption_emojis"], 0)
         self.assertTrue(any("render.fps" in w and "ntsc" in w for w in result["warnings"]), result["warnings"])
         self.assertIn(",Caption,,", (self.render_dir / "clip01.ass").read_text(encoding="utf-8"))
+
+    def test_recut_keeps_anchor_but_drops_stale_review(self):
+        self.assertEqual(self.render(30, "--reviewed-emoji-only")["clips"][0]["caption_emojis"], 1)
+        self.assertEqual(self.render(30, "--reviewed-emoji-only")["clips"][0]["status"], "schon da")
+        plan = self.work / "clips.json"
+        data = json.loads(plan.read_text())
+        data["clips"][0]["segments"][0]["start"] = .05
+        plan.write_text(json.dumps(data))
+        result = self.render(30, "--reviewed-emoji-only")
+        self.assertEqual(result["clips"][0]["caption_emojis"], 0)
+        self.assertTrue(any("seit dem Emoji-Review geändert" in w for w in result["warnings"]))
+
+    def test_explicit_empty_review_invalidates_legacy_emoji_render(self):
+        review = caption_emoji_plan.review_path(self.work, "clip01")
+        receipt = json.loads(review.read_text())
+        review.unlink()
+        self.assertEqual(self.render(30, mode="legacy")["clips"][0]["caption_emojis"], 1)
+        receipt["emoji_popouts"] = []
+        review.write_text(json.dumps(receipt))
+        clip = self.render(30, mode="legacy")["clips"][0]
+        self.assertEqual((clip["status"], clip["caption_emojis"]), ("gerendert", 0))
 
     def test_directory_at_overlay_path_is_left_untouched(self):
         collision = self.render_dir / "clip01.emoji.mov"

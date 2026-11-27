@@ -135,7 +135,17 @@ def cut(vod_id: str, media: Path, login: str) -> tuple[bool, str]:
     code, data, err = uv_script("validate_clips.py", "--vod-id", vod_id)
     if code != 0:
         return False, "; ".join(data.get("errors") or []) or data.get("error") or "validate"
-    code, data, err = uv_script("render_clip.py", "--vod-id", vod_id, "--clip", "clip01", timeout=1800)
+    try:
+        code, _data, review_err = uv_script("review_caption_emoji.py", "--vod-id", vod_id, "--clip", "clip01",
+                                           "--media", str(media), timeout=145)
+        if review_err:
+            print(review_err.strip(), file=sys.stderr)
+    except (OSError, subprocess.TimeoutExpired):
+        code = 1
+    if code != 0:
+        print(f"{vod_id}: kein gültiges Emoji-Review; rendere ohne Caption-Pop-outs", file=sys.stderr)
+    code, data, err = uv_script("render_clip.py", "--vod-id", vod_id, "--clip", "clip01",
+                                "--reviewed-emoji-only", timeout=1800)
     if code != 0:
         return False, data.get("error") or err or "render"
     code, data, err = uv_script("verify_clip.py", "--vod-id", vod_id, "--clip", "clip01", "--loudness",

@@ -24,11 +24,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import math
 import re
 import subprocess
 import tempfile
 import time
+import zlib
 from contextlib import suppress
 from itertools import groupby
 from pathlib import Path
@@ -36,6 +38,7 @@ from typing import Any
 
 import _lib
 import caption_emoji
+import caption_emoji_plan
 import caption_numbers
 import emoji_catalog
 import hook_card
@@ -155,18 +158,28 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
     phrase = 0
     previous_corners: set[int] = set()
     last_shown: dict[str, float] = {}
-    for seg in clip["segments"]:
+    last_review_cue = -math.inf
+    legacy = (caption_emoji_plan.FIELD not in clip and rconf.get("caption_emoji_mode") == "legacy")
+    reviewed = {}
+    if styled and caption_emoji_plan.FIELD in clip and clip[caption_emoji_plan.FIELD] != []:
+        try:
+            reviewed = caption_emoji_plan.validate_markers(clip[caption_emoji_plan.FIELD],
+                                                           caption_emoji_plan.word_context(clip, words))
+        except (ValueError, OSError, EOFError, KeyError, zlib.error) as exc:
+            logging.getLogger(__name__).warning("Emoji-Review wird ignoriert: %s", exc)
+    for seg_i, seg in enumerate(clip["segments"]):
         a, b = float(seg["start"]), float(seg["end"])
         seg_words = [w for w in words if a - .05 <= w["s"] < b and a < w["e"] <= b + .05]
         if voiceover and out_t < duck_until:
             seg_words = [w for w in seg_words if out_t + max(a, w["s"]) - a >= duck_until]
+        visible_starts = {w["s"] for w in seg_words} if seg_i in reviewed else set()
         n_words += len(seg_words)
         display = [w for lang, run in groupby(seg_words, key=lambda w: w.get("transcript_language") or language)
                    for w in caption_numbers.display_words(list(run), lang, bounds=(a, b))]
         groups = group_subtitles(display, per, styled)
         hits = dict(emoji_catalog.hits(display, caption_emoji.WORDS, bounds=(a, b), default_language=language,
                                        catalog_enabled=rconf.get("caption_emoji_catalog", True),
-                                       unavailable=unavailable_glyphs, candidates=candidate_glyphs)) if styled else {}
+                                       unavailable=unavailable_glyphs, candidates=candidate_glyphs)) if styled and legacy else {}
         group_offset = 0
         for gi, group in enumerate(groups):
             texts = [ass_text(w["w"].upper() if upper else w["w"]) for w in group]
@@ -176,7 +189,7 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
             color = PHRASE_COLORS[phrase % len(PHRASE_COLORS)] if styled else PHRASE_COLORS[0]
             style = "PhraseCaption" if styled else "Caption"
             matches: list[tuple[str, float, float]] = []
-            if styled and split >= 0:
+            if styled and split >= 0 and legacy:
                 for wi, w in enumerate(group):
                     glyph = hits.get(group_offset + wi)
                     start = out_t + max(a, w["s"]) - a
@@ -186,14 +199,30 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
                         last_shown[glyph] = start
                     if len(matches) == 2:
                         break
+            elif styled and split >= 0 and visible_starts:
+                for source_start, glyph in reviewed.get(seg_i, ()):
+                    if source_start not in visible_starts or not group[0]["s"] <= source_start < group_end:
+                        continue
+                    start = out_t + source_start - a
+                    end = min(start + .78, out_t + group_end - a)
+                    if end - start < .12:
+                        continue
+                    if candidate_glyphs is not None:
+                        candidate_glyphs.add(glyph)
+                    if (glyph in (unavailable_glyphs or ()) or start - last_review_cue < caption_emoji_plan.MIN_GAP
+                            or start - last_shown.get(glyph, -math.inf) < 2.5):
+                        continue
+                    matches.append((glyph, start, end))
+                    last_review_cue = last_shown[glyph] = start
             if emoji_cues is not None and matches:
-                # A Burst starts when its last keyword is spoken; never anticipate it.
-                start, end = matches[-1][1:]
                 lines = [" ".join(texts[:split]), " ".join(texts[split:])] if split > 0 else [" ".join(texts)]
                 seed = f"{clip.get('id')}:{a}:{phrase}:{' '.join(texts)}"
-                cues = caption_emoji.pop_out_cues([m[0] for m in matches], start, end, lines, seed, previous_corners)
-                emoji_cues.extend(cues)
-                previous_corners = {cue.corner for cue in cues}
+                # Preserve the legacy burst, but never delay an explicit word anchor.
+                for event in ([matches] if legacy else [[match] for match in matches]):
+                    start, end = event[-1][1:]
+                    cues = caption_emoji.pop_out_cues([m[0] for m in event], start, end, lines, seed, previous_corners)
+                    emoji_cues.extend(cues)
+                    previous_corners = {cue.corner for cue in cues}
             for wi, w in enumerate(group):
                 start = w["s"]
                 if wi + 1 < len(group):
@@ -279,6 +308,9 @@ def render_input_digest(clip, sections, words, rconf, layout, cam, game, languag
         st = path.stat()
         inputs.append((str(path), st.st_size, st.st_mtime_ns, section["file_offset"]))
     visual = {k: clip.get(k) for k in ("segments", "hook", "id")}
+    # In legacy mode an explicit empty review disables keyword triggers; absence does not.
+    if caption_emoji_plan.FIELD in clip and (clip[caption_emoji_plan.FIELD] or rconf.get("caption_emoji_mode") == "legacy"):
+        visual[caption_emoji_plan.FIELD] = clip[caption_emoji_plan.FIELD]
     payload = json.dumps([visual, inputs, words, rconf, layout, cam, game, language, credit],
                          sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(payload.encode()).hexdigest()
@@ -350,6 +382,8 @@ def main() -> None:
                         help="überschreibt render.encoder")
     parser.add_argument("--force", action="store_true", help="vorhandene MP4 neu rendern")
     parser.add_argument("--dry-run", action="store_true", help="nur ffmpeg-Befehle zeigen, nichts schreiben")
+    parser.add_argument("--reviewed-emoji-only", action="store_true",
+                        help="auch bei legacy nur kontextgeprüfte Caption-Pop-outs zulassen")
     parser.add_argument("--voiceover-captions", type=Path,
                         help="JSON mit text/start/end/duck_until des Audiomixes (ein Clip)")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -367,6 +401,8 @@ def main() -> None:
     st = _lib.streamer_settings(cfg, meta.get("streamer"))
     language = str(st.get("language") or "de")
     rconf = cfg["render"]
+    if args.reviewed_emoji_only and rconf.get("caption_emoji_mode") == "legacy":
+        rconf = {**rconf, "caption_emoji_mode": "reviewed"}
     use_apple_emoji = rconf.get("caption_emojis", True) and caption_emoji.apple_ready()
     layout_cfg = st.get("layout") or {}
     facecam = layout_cfg.get("facecam")
@@ -415,6 +451,19 @@ def main() -> None:
     results = []
     for clip in clips:
         cid = _lib.safe_id(clip["id"])
+        # Inline lists have no revision binding. Only use a verified sidecar.
+        clip = dict(clip)
+        if caption_emoji_plan.FIELD in clip:
+            clip[caption_emoji_plan.FIELD] = []
+        if use_apple_emoji:
+            try:
+                emoji_review = _lib.read_json(caption_emoji_plan.review_path(work, cid))
+                clip[caption_emoji_plan.FIELD] = caption_emoji_plan.receipt_markers(emoji_review, clip, words)
+            except FileNotFoundError:
+                pass
+            except (ValueError, OSError, EOFError, KeyError, zlib.error) as exc:
+                warnings.append(f"{cid}: Emoji-Review wird ignoriert: {exc}")
+                clip[caption_emoji_plan.FIELD] = []
         out = odir / f"{cid}.mp4"
         part = odir / f"{cid}.part.mp4"   # erst hierhin rendern, nach Erfolg umbenennen
         sidecar_path = odir / f"{cid}.json"
@@ -453,15 +502,24 @@ def main() -> None:
             results.append({"id": cid, "layout": layout, "encoder": encoder, "duration_s": round(total, 2),
                             "words": n_words, "caption_emojis": len(emoji_cues or ()), "out": str(out), "ffmpeg": cmd})
             continue
-        if out.is_file() and sidecar_path.is_file() and not args.force:
-            results.append({"id": cid, "status": "schon da", "out": str(out)})
-            continue
-        if out.is_file() and not sidecar_path.is_file():
-            warnings.append(f"{cid}: {out.name} ohne Sidecar (Rendern früher abgebrochen?), wird neu gerendert")
         try:
             input_digest = render_input_digest(clip, sections, words, rconf, layout, cam, use_game, language, credit)
         except OSError as exc:
             _lib.fail(f"{cid}: Quellabschnitt nicht verfügbar: {exc}", _lib.EXIT_ERROR, clip=cid)
+        cache_key = hashlib.sha256(json.dumps([1, input_digest, use_apple_emoji, voiceover,
+                                               args.reviewed_emoji_only]).encode("utf-8")).hexdigest()
+        if out.is_file() and not args.force:
+            try:
+                prior = _lib.read_json(sidecar_path)
+            except (OSError, ValueError):
+                prior = None
+            if isinstance(prior, dict) and prior.get("render_cache_key") == cache_key:
+                results.append({"id": cid, "status": "schon da", "out": str(out)})
+                continue
+            if out.with_suffix(".vo-ready").exists() or out.with_suffix(".novo.mp4").exists():
+                _lib.fail(f"{cid}: Render-Eingaben geändert; bestehender VO-Mix bleibt erhalten. Neue Revision anlegen.",
+                          _lib.EXIT_INVALID, clip=cid)
+            warnings.append(f"{cid}: Render-Cache passt nicht zu den aktuellen Eingaben; rendere neu")
         rdir.mkdir(parents=True, exist_ok=True)
         odir.mkdir(parents=True, exist_ok=True)
         t0 = time.monotonic()
@@ -485,8 +543,9 @@ def main() -> None:
                 if hook_image is not None:
                     discard_emoji_overlay(hook_image)
                     hook_image = None
-                ass, total, n_words = build_ass(clip, words, rconf, credit,
-                                                emoji_cues=[] if emoji_cues is not None else None,
+                if emoji_cues is not None:
+                    emoji_cues.clear()
+                ass, total, n_words = build_ass(clip, words, rconf, credit, emoji_cues=emoji_cues,
                                                 language=language, voiceover=voiceover)
         hook_overlay = (hook_image, hook_s) if hook_image is not None else None
         if overlay is not None and emoji_cues:
@@ -546,12 +605,15 @@ def main() -> None:
             "vod_id": args.vod_id, "clip_id": cid, "file": str(out), "duration_s": round(total, 3),
             "segments": clip["segments"], "candidate": clip.get("candidate"), "layout": layout,
             "render_input_sha256": input_digest,
+            "render_cache_key": cache_key,
             "original_render_sha256": original_render_sha256,
             "encoder": used, "amf_fallback_reason": fallback, "render_seconds": took,
             "hook": clip.get("hook"), "title": clip.get("title"), "captions": clip.get("captions"),
             "commentary": clip.get("commentary"), "credit": credit, "streamer": meta.get("streamer"),
             "source_url": meta.get("url"), "rendered_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
+        if args.reviewed_emoji_only:
+            sidecar["reviewed_emoji_only"] = True
         _lib.write_json(sidecar_path, sidecar)
         caps = clip.get("captions") or {}
         txt = [f"TITEL: {clip.get('title', '')}", ""]

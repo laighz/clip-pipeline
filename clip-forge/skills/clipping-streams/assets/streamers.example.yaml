@@ -49,7 +49,8 @@ render:
   hook_emojis: true         # macOS: bis zu ein passendes Apple-Emoji in der Titelkarte
   words_per_caption: 3      # Wörter pro Untertitel-Einblendung
   caption_emojis: true      # macOS: Apple Emoji Pop-Out / Burst an den Untertitelecken
-  caption_emoji_catalog: true # Eindeutige, konkrete Mehrwort-Namen; false = nur kuratierte Auslöser
+  caption_emoji_mode: reviewed # Nur kontextgeprüfte Marker; legacy = alte Worttrigger für Pläne ohne Entscheidung
+  caption_emoji_catalog: true # Betrifft nur legacy: Mehrwort-Auslöser aus dem Offline-Katalog
   emoji_words_per_caption: 5 # Maximale Wortzahl im Emoji-Stil, verteilt auf bis zu zwei Zeilen
   loudnorm: "I=-16:TP=-1.5:LRA=11"
   x264: {crf: 20, preset: veryfast}
