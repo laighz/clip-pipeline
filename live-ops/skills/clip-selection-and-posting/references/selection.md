@@ -9,6 +9,11 @@
 
 `<root>` ist das clip-pipeline-Repo, der Ordner mit `clip-forge` und `live-ops`.
 
+Wenn mehrere Kandidaten desselben VODs bereits lokal vorliegen, vergleiche sie vor dem
+Rendern mit `uv run --quiet "<root>/clip-forge/skills/clipping-streams/scripts/preview_candidates.py" --vod-id <vod-id> --candidates c231,c417`.
+Nimm für den Kontaktbogen die redaktionelle Vorauswahl, wenn es schon eine gibt;
+die Standbilder und Erkennungssignale ersetzen weder Wiedergabe noch Bewertung.
+
 Vor dem Render des ausgewählten Clips im selben Review auch über Untertitel-Pop-outs entscheiden.
 `review_caption_emoji.py --context` listet Wort-IDs in Schnittreihenfolge. Den Kontext und nötige
 Frames prüfen, nur klar passende Akzente wählen, andernfalls `choices: []`. Die `revision` aus
