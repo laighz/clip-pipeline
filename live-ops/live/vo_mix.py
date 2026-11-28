@@ -44,7 +44,21 @@ def voiceover_text(clip: dict, override: str | None = None) -> tuple[str, str]:
 
 def original_volume_filter(duck_until: float) -> str:
     gain = ORIGINAL_INTRO_GAIN
-    return f"volume='{gain}+{1-gain}*clip((t-{duck_until:.3f})/{ORIGINAL_FADE_IN_S},0,1)':eval=frame"
+    # Evaluate each sample, so gain is already full at a protected speech onset.
+    return f"aeval='val(ch)*({gain}+{1-gain}*clip((t-{duck_until:.3f})/{ORIGINAL_FADE_IN_S},0,1))':c=same"
+
+
+def check_protected_opening(clip: dict, duck_until: float, duration: float) -> None:
+    """Guard a source-speech onset in seconds of clip playback, not VOD time."""
+    if 'vo_protect_from' not in clip:
+        return
+    opening = clip['vo_protect_from']
+    if type(opening) not in (int, float) or not 0 <= opening < duration:
+        raise ValueError('vo_protect_from muss eine Zeit innerhalb des Clips sein')
+    audible_from = duck_until + ORIGINAL_FADE_IN_S
+    if opening < audible_from:
+        raise ValueError(f'Voice-over überdeckt den ersten Originalsatz bei {opening:.3f}s '
+                         f'(Tonblende bis {audible_from:.3f}s); echten Vorlauf ergänzen')
 
 
 def synthesize(text: str) -> bytes:
@@ -124,6 +138,7 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
         duck_until = round(dur + delay + DUCK_TAIL_S, 3)
         if source_audio < duck_until:
             raise ValueError('Originalton endet vor dem Voice-over-Zeitfenster')
+        check_protected_opening(selected, duck_until, min(source_audio, planned))
         windows = {'start': delay, 'end': round(delay + dur, 3), 'duck_until': duck_until}
         info = stage / 'voiceover.json'
         info.write_text(json.dumps(windows, ensure_ascii=False), encoding='utf-8')
