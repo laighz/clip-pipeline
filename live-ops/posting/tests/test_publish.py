@@ -35,6 +35,8 @@ class Ledger(unittest.TestCase):
             with patch.object(sys, 'argv', ['publish_one.py', 'X', 'example', 'clip01', '--expected-revision', rev]), \
                     patch.object(publisher.h, 'connect', side_effect=AssertionError('browser reached')):
                 self.assertEqual(publisher.main(), 2)
+                media.with_suffix('.vo-ready').write_text(rev + '\n')
+                self.assertEqual(publisher.main(), 2)
 
     def test_legacy_backup_and_stale_voiceover_receipt_never_submit(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -56,9 +58,10 @@ class Ledger(unittest.TestCase):
                    'POST_BROWSER_LOCK': str(home / 'lock'),
                    'PATH': str(bin_dir) + os.pathsep + os.environ['PATH']}
             command = ['bash', str(ROOT / 'post_all.sh'), 'example', 'clip01']
-            for stale in (False, True):
-                if stale:
-                    (out / 'clip01.vo-ready').write_text('0' * 64 + '\n')
+            revision = load('publish_status').media_revision(clip)
+            for receipt in (None, revision, 'audio-only-v1:' + '0' * 64):
+                if receipt is not None:
+                    (out / 'clip01.vo-ready').write_text(receipt + '\n')
                 run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
                 self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
                 self.assertFalse((home / 'uploader-was-called').exists())
@@ -122,7 +125,7 @@ class Ledger(unittest.TestCase):
             bin_dir = tmp / 'bin'
             (out / 'clip01.mp4').touch()
             bin_dir.mkdir()
-            (out / 'clip01.vo-ready').write_text(load('publish_status').media_revision(out / 'clip01.mp4') + '\n')
+            (out / 'clip01.vo-ready').write_text('audio-only-v1:' + load('publish_status').media_revision(out / 'clip01.mp4') + '\n')
             uv = bin_dir / 'uv'
             uv.write_text('#!/bin/bash\nif [[ "$*" == *--verify-only* ]]; then\n'
                           '  python3 "$POST_TEST_ROOT/publish_status.py" confirm "$HOME/.hermes/cache/scratch/live" example clip01 X || exit 1\n'
@@ -143,6 +146,8 @@ class Ledger(unittest.TestCase):
             first = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(first.returncode, 2, first.stdout + first.stderr)
             self.assertFalse((live / 'posted_clips.jsonl').exists())
+            # A pre-policy submission can still be confirmed without authorizing a retry.
+            (out / 'clip01.vo-ready').write_text(load('publish_status').media_revision(out / 'clip01.mp4') + '\n')
             second = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
             self.assertIn('readback only', second.stdout)

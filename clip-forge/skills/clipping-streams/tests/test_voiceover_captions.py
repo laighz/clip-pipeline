@@ -17,16 +17,16 @@ def captions(ass):
 
 
 class VoiceoverCaptionsTest(unittest.TestCase):
-    def test_voiceover_text_replaces_ducked_source_even_across_cut(self):
+    def test_only_audible_source_is_captioned_even_when_voiceover_crosses_cut(self):
         clip = {'id': 'clip01', 'segments': [{'start': 10, 'end': 11}, {'start': 40, 'end': 48}]}
         words = [{'s': 10.15, 'e': 10.5, 'w': 'Quiet.'},
                  {'s': 40.2, 'e': 40.55, 'w': 'Also-quiet.'},
                  {'s': 40.9, 'e': 41.4, 'w': 'Straddles.'},
                  {'s': 41.6, 'e': 42.2, 'w': 'Audible.'}]
         cues, duration, count = build_ass(clip, words, {'caption_uppercase': False}, None,
-                                          voiceover=('Here is the intro.', .2, 2., 2.1))
-        self.assertEqual(captions(cues), [(.2, 2., 'Here is the intro.'), (2.6, 3.8, 'Audible.')])
-        self.assertEqual(count, 5)
+                                          duck_until=2.1)
+        self.assertEqual(captions(cues), [(2.6, 3.8, 'Audible.')])
+        self.assertEqual(count, 1)
         self.assertEqual(duration, 9.)
 
     def test_no_voiceover_keeps_source_captions(self):
@@ -36,10 +36,11 @@ class VoiceoverCaptionsTest(unittest.TestCase):
         self.assertEqual(captions(cues), [(.1, 1.2, 'Original.')])
         self.assertEqual(count, 1)
 
-    def test_voiceover_escapes_ass_control_text(self):
+    def test_voiceover_window_does_not_remove_opening_hook(self):
         clip = {'id': 'clip01', 'segments': [{'start': 0, 'end': 3}]}
-        cues, _, _ = build_ass(clip, [], {}, None, voiceover=(r'{\pos(0,0)} No control.', .2, 2., 2.1))
-        self.assertNotIn(r'{\pos(0,0)}', cues)
+        cues, _, _ = build_ass({**clip, 'hook': 'Opening hook'}, [], {}, None, duck_until=2.1)
+        self.assertIn('Opening hook', cues)
+        self.assertFalse(captions(cues))
 
 
 if __name__ == '__main__':
