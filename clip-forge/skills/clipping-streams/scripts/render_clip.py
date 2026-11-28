@@ -203,7 +203,8 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
                 # Preserve the legacy burst, but never delay an explicit word anchor.
                 for event in ([matches] if legacy else [[match] for match in matches]):
                     start, end = event[-1][1:]
-                    cues = caption_emoji.pop_out_cues([m[0] for m in event], start, end, lines, seed, previous_corners)
+                    cues = caption_emoji.pop_out_cues([m[0] for m in event], start, end, lines, seed,
+                                                      previous_corners, onset_visible=not legacy)
                     emoji_cues.extend(cues)
                     previous_corners = {cue.corner for cue in cues}
             for wi, w in enumerate(group):
@@ -321,6 +322,11 @@ def build_cmd(ffmpeg: str, clip: dict[str, Any], sections: list[dict], ass_path:
     if emoji_overlay is not None:
         inputs += ["-i", str(emoji_overlay)]
         _, _, x, y = caption_emoji.overlay_geometry(rconf)
+        if n > 1 and clip.get(caption_emoji_plan.FIELD):
+            # Concat inherits sub-frame offsets from audio. Composite on the output
+            # frame grid, not on the unrounded timestamps before the final -r.
+            graph.append(f"[{vlab}]fps={rconf['fps']}[emoji_clock]")
+            vlab = "emoji_clock"
         graph.append(f"[{vlab}][{n}:v]overlay=x={x}:y={y}:eof_action=pass:repeatlast=0[with_emoji]")
         vlab = "with_emoji"
     if hook_overlay is not None:
@@ -486,9 +492,11 @@ def main() -> None:
             input_digest = render_input_digest(clip, sections, words, rconf, layout, cam, use_game, language, credit)
         except OSError as exc:
             _lib.fail(f"{cid}: Quellabschnitt nicht verfügbar: {exc}", _lib.EXIT_ERROR, clip=cid)
-        # Keep existing unmixed cache keys; never reuse a render with the old VO text.
-        cache_key = hashlib.sha256(json.dumps([2 if duck_until else 1, input_digest, use_apple_emoji, duck_until or None,
-                                               args.reviewed_emoji_only]).encode("utf-8")).hexdigest()
+        cache_inputs = [2 if duck_until else 1, input_digest, use_apple_emoji, duck_until or None,
+                        args.reviewed_emoji_only]
+        if use_apple_emoji and clip.get(caption_emoji_plan.FIELD):
+            cache_inputs.append("reviewed-emoji-onset-v1")
+        cache_key = hashlib.sha256(json.dumps(cache_inputs).encode("utf-8")).hexdigest()
         if out.is_file() and not args.force:
             try:
                 prior = _lib.read_json(sidecar_path)

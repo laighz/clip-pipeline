@@ -1,5 +1,6 @@
 """The subtitle's spoken words remain intact when a keyword gets an icon."""
 import json
+import math
 import os
 import re
 import shutil
@@ -12,7 +13,7 @@ from itertools import groupby
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from render_clip import build_ass  # pyright: ignore[reportMissingImports]
+from render_clip import build_ass, build_cmd  # pyright: ignore[reportMissingImports]
 from caption_emoji import motion  # pyright: ignore[reportMissingImports]
 import caption_emoji  # pyright: ignore[reportMissingImports]
 import caption_emoji_plan  # pyright: ignore[reportMissingImports]
@@ -33,6 +34,78 @@ def caption_groups(ass):
 
 
 class CaptionEmojiTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('ffmpeg') and find_spec('PIL'), 'FFmpeg and Pillow required')
+    def test_reviewed_pop_out_is_visible_on_the_first_frame_at_its_anchor(self):
+        from PIL import Image
+
+        # Source word at 10.20 maps to precisely frame 6 of the cut at 30 fps.
+        words = [{'w': 'bike', 's': 10.2, 'e': 10.45}]
+        clip = {'id': 'clip01', 'segments': [{'start': 10, 'end': 11}],
+                'emoji_popouts': [{'segment': 0, 'start': 10.2, 'word': 'bike', 'emoji': '🏍️'}]}
+        config = {'width': 270, 'height': 480, 'fps': 30}
+        cues = []
+        build_ass(clip, words, config, None, emoji_cues=cues)
+        self.assertAlmostEqual(cues[0].start, .2)
+        width, height, _, _ = caption_emoji.overlay_geometry(config)
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t) / 'alpha.mov'
+            caption_emoji.render_overlay('ffmpeg', cues, config, out, out.parent,
+                                         sprites={'🏍️': Image.new('RGBA', (100, 100), (255, 60, 0, 255))})
+            raw = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', str(out), '-frames:v', '8',
+                                           '-pix_fmt', 'rgba', '-f', 'rawvideo', 'pipe:1'])
+        frame_bytes = width * height * 4
+        self.assertEqual(max(raw[5 * frame_bytes + 3:6 * frame_bytes:4]), 0)
+        self.assertEqual(max(raw[6 * frame_bytes + 3:7 * frame_bytes:4]), 255)
+
+    @unittest.skipUnless(shutil.which('ffmpeg') and find_spec('PIL'), 'FFmpeg and Pillow required')
+    def test_short_reviewed_cue_at_low_fps_is_opaque_on_its_first_frame(self):
+        from PIL import Image
+
+        config = {'width': 270, 'height': 480, 'fps': 10}
+        cue = caption_emoji.Cue('🏍️', .101, .222, 540, 0, 1, onset_visible=True)
+        with tempfile.TemporaryDirectory() as t:
+            out = Path(t) / 'alpha.mov'
+            caption_emoji.render_overlay('ffmpeg', [cue], config, out, out.parent,
+                                         sprites={cue.glyph: Image.new('RGBA', (100, 100), (255, 0, 0, 255))})
+            raw = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', str(out), '-pix_fmt', 'rgba',
+                                           '-f', 'rawvideo', 'pipe:1'])
+        w, h, _, _ = caption_emoji.overlay_geometry(config)
+        stride = w * h * 4
+        self.assertEqual(max(raw[stride + 3:2 * stride:4]), 0)
+        self.assertEqual(max(raw[2 * stride + 3:3 * stride:4]), 255)
+
+    @unittest.skipUnless(shutil.which('ffmpeg') and find_spec('PIL'), 'FFmpeg and Pillow required')
+    def test_reviewed_emoji_in_final_mp4_at_frame_after_a_jump_cut(self):
+        from PIL import Image
+
+        w, h, fps = 270, 480, 30
+        config = {'width': w, 'height': h, 'fps': fps, 'loudnorm': 'I=-16:TP=-1.5:LRA=11'}
+        # First cut ends between video frames. The first output frame at or after
+        # the word in segment 2 must be frame 12, including with frame-rounded cuts.
+        clip = {'segments': [{'start': 0, 'end': .24}, {'start': 1, 'end': 1.6}],
+                'emoji_popouts': [{'segment': 1, 'start': 1.16, 'word': 'bike', 'emoji': '🏍️'}]}
+        cues = []
+        build_ass(clip, [{'w': 'bike', 's': 1.16, 'e': 1.46}], config, None, emoji_cues=cues)
+        self.assertEqual(math.ceil(cues[0].start * fps - 1e-9), 12)
+        with tempfile.TemporaryDirectory() as t:
+            p = Path(t)
+            source, overlay, ass, out = [p / n for n in ('source.mp4', 'overlay.mov', 'text.ass', 'out.mp4')]
+            subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', f'color=c=black:s={w}x{h}:r={fps}:d=2',
+                            '-f', 'lavfi', '-i', 'sine=f=500:r=48000:d=2', '-c:v', 'libx264', '-c:a', 'aac',
+                            str(source)], check=True)
+            ass.write_text(build_ass(clip, [], config, None)[0], encoding='utf-8')
+            caption_emoji.render_overlay('ffmpeg', cues, config, overlay, p,
+                                         sprites={'🏍️': Image.new('RGBA', (100, 100), (255, 0, 0, 255))})
+            sections = [{'start': 0, 'end': 2, 'file_offset': 0, 'file': str(source)}]
+            subprocess.run(build_cmd('ffmpeg', clip, sections, ass, out, 'crop', config, None, None,
+                                     'libx264', overlay), check=True, capture_output=True)
+            raw = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', str(out), '-frames:v', '14',
+                                           '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'])
+        stride = w * h * 3
+        red = [max(raw[i * stride:(i + 1) * stride:3]) for i in (11, 12, 13)]
+        self.assertLess(red[0], 30, red)
+        self.assertGreater(red[1], 180, red)
+
     def test_keyword_adds_graphic_without_changing_words(self):
         ass, duration, count, cues = render_words("Das", "Auto,", "brennt!")
         self.assertEqual((duration, count), (5, 3))

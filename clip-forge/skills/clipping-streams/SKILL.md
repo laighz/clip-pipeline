@@ -248,6 +248,9 @@ Mit `--decision-file <datei>` ein Objekt wie `{"revision":"<aus --context>","cho
 oder `choices: []` speichern. Das Skript schreibt den Beleg nach `emoji-reviews/<clip>.json`, getrennt
 von `clips.json`. Es übernimmt den Original-Wortanker; ändert sich der Schnitt oder das geschnittene
 Transkript, wird auch eine leere Entscheidung ungültig und muss neu geprüft werden.
+Ein bestätigter Pop-out ist ab dem ersten Frame am oder nach dem Wortbeginn sichtbar.
+Liegt Whisper wegen einer Sprechpause daneben, zuerst den Wortbeginn anhand des Originaltons
+im Transkript korrigieren und dann den Beleg neu erstellen. Den Pop-out nicht blind verschieben.
 Maximal drei Marker, keine Spoiler, kein Pop-out über geducktem Originalton. Fehlende oder ungültige
 Entscheidungen ergeben im Standardmodus keine Pop-outs; die Untertitel bleiben erhalten.
 Der automatische GTA-Lauf führt denselben Review nach der Schnittvalidierung aus:

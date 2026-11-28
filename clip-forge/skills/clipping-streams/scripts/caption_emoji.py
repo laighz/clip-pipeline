@@ -61,6 +61,7 @@ class Cue:
     x: int
     corner: int  # Bit 0: right. Bit 1: below.
     lines: int
+    onset_visible: bool = False
 
     @property
     def side(self) -> str:
@@ -76,7 +77,7 @@ def apple_ready() -> bool:
 
 
 def pop_out_cues(glyphs: list[str], start: float, end: float, text_lines: list[str], seed: str,
-                 previous_corners: set[int]) -> list[Cue]:
+                 previous_corners: set[int], *, onset_visible: bool = False) -> list[Cue]:
     # A burst occupies both corners of a diagonal. Neither may repeat from the previous event.
     eligible = [corner for corner in range(4) if corner not in previous_corners
                 and (len(glyphs) == 1 or (corner ^ 3) not in previous_corners)]
@@ -90,7 +91,7 @@ def pop_out_cues(glyphs: list[str], start: float, end: float, text_lines: list[s
         advance = sum(21 if c in " !.,:;Iil'" else 62 if c in "WMwm" else 45 for c in text)
         edge = min(advance / 2, BAND_WIDTH / 2 - SPRITE_LIMIT / 2 - DRIFT_X - 4)
         x = round(BASE_W / 2 + edge * (1 if right else -1))
-        cues.append(Cue(glyph, start, end, x, corner, len(text_lines)))
+        cues.append(Cue(glyph, start, end, x, corner, len(text_lines), onset_visible))
     return cues
 
 
@@ -99,7 +100,7 @@ def smooth(t: float) -> float:
     return t * t * t * (10 + t * (-15 + 6 * t))
 
 
-def motion(elapsed: float, duration: float) -> tuple[float, float, float]:
+def motion(elapsed: float, duration: float, *, onset_visible: bool = False) -> tuple[float, float, float]:
     """Brief spring overshoot, independent outward drift, and a soft dissolve."""
     if not 0 <= elapsed < duration:
         return 0., 0., 0.
@@ -107,9 +108,11 @@ def motion(elapsed: float, duration: float) -> tuple[float, float, float]:
     # Step response of an underdamped second-order spring, starting at rest.
     damping, frequency = 7.2, 8.3
     spring = 1 - math.exp(-damping * t) * (math.cos(frequency * t) + damping / frequency * math.sin(frequency * t))
-    opacity = smooth(min(elapsed / min(.09, duration / 3), (duration - elapsed) / min(.15, duration / 3)))
+    fade_in = 1. if onset_visible else elapsed / min(.09, duration / 3)
+    opacity = smooth(min(fade_in, (duration - elapsed) / min(.15, duration / 3)))
     travel = .78 * smooth(elapsed / min(.22, duration * .60)) + .22 * smooth(elapsed / duration)
-    return .24 + .76 * spring, opacity, travel
+    initial_scale = .52 if onset_visible else .24
+    return initial_scale + (1 - initial_scale) * spring, opacity, travel
 
 
 def overlay_geometry(rconf: dict[str, Any]) -> tuple[int, int, int, int]:
@@ -121,7 +124,7 @@ def overlay_geometry(rconf: dict[str, Any]) -> tuple[int, int, int, int]:
 
 def sprite_pose(cue: Cue, now: float, sx: float, sy: float, left: int, top: int,
                 size: tuple[int, int]) -> Pose | None:
-    scale, alpha, travel = motion(now - cue.start, cue.end - cue.start)
+    scale, alpha, travel = motion(now - cue.start, cue.end - cue.start, onset_visible=cue.onset_visible)
     opacity = round(alpha * 255)
     if not opacity:
         return None
@@ -227,10 +230,17 @@ def render_overlay(ffmpeg: str, cues: list[Cue], rconf: dict[str, Any], output: 
             frame = None
             for i in range(first, len(cues)):
                 cue = cues[i]
-                if cue.start > now:
+                if cue.start > now + 1e-9:  # absorb floating-point round-off at frame boundaries
                     break
+                if cue.end <= now:
+                    continue
                 sprite = sprites[cue.glyph]
-                poses = [sprite_pose(cue, now - offset, sx, sy, left, top, sprite.size) for offset in offsets]
+                if cue.onset_visible and now - 1 / fps < cue.start - 1e-9:
+                    # The first eligible frame uses the fully visible opening pose, even
+                    # when a low frame rate places it in the cue's fade-out interval.
+                    poses = [sprite_pose(cue, cue.start, sx, sy, left, top, sprite.size)]
+                else:
+                    poses = [sprite_pose(cue, now - offset, sx, sy, left, top, sprite.size) for offset in offsets]
                 exposure = sample_sprite(sprite, poses)
                 if exposure is None:
                     continue
