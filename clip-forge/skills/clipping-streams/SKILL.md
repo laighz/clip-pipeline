@@ -176,6 +176,27 @@ bevor du eine Facecam speicherst.
 ## Auswahl, Plan, Render
 Lies `candidates.json` (score, reasons, labels) und die Transkripte. Nimm nur,
 was ein Fremder in zwei Sekunden versteht und einem Freund schicken würde.
+
+Für mehrere Kandidaten vor dem Rendern einen lokalen Kontaktbogen erstellen:
+
+```bash
+uv run --quiet "<skill>/scripts/preview_candidates.py" --vod-id <vod-id> --limit 3
+```
+
+Standard: die drei höchsten Erkennungssignale dieses VODs; nach eigener Vorauswahl
+stattdessen `--candidates c231,c417`. `--dry-run` zeigt nur die Liste. Das JPG in
+`work/<vod-id>/previews/` zeigt drei VOD-Zeitmarken je Kandidat: vor, am und nach dem
+erkannten Moment. Nur vorhandene Videos werden gelesen. Bei `partial` die im JSON
+markierten Lücken beachten; bei `no_previews` gibt es kein neues Bild. Der Kontaktbogen
+ist eine Stichprobe, kein Ersatz für Transkript und Wiedergabe. Das Erkennungssignal
+ist weder die redaktionelle Bewertung noch eine Freigabe. Bei manuellen Clip-Paketen
+mit unklarer Auswahl erst die Shortlist zeigen und dann nur die ausgewählten Clips
+rendern. Bestehende Live- und Posting-Regeln bleiben unverändert.
+
+Idee: OpenClip `openclip-repurpose` und `openclip-thumbnails`, Stand
+`ea02c98db69c437616df1db4a4400cde1f4a0832` (MIT). Eigenständig lokal umgesetzt;
+kein OpenClip-Konto, kein Cloud-Upload.
+
 Setup, dann Payoff. Braucht die Pointe den Satz davor, beginnt der Clip mit dem
 Setup. Ist der Höhepunkt ohne Aufbau verständlich, kommt er als Cold Open nach
 vorn (erstes Segment `role: cold_open`, max. 3 s). Lieber zwei starke Clips als
