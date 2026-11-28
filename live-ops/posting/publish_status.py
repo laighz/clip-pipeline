@@ -12,6 +12,7 @@ PLATFORMS = {'YT', 'TT', 'SC', 'IG', 'X'}
 TOKEN = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,159}')
 CLIP = re.compile(r'clip[0-9]+')
 DIGEST = re.compile(r'[0-9a-f]{64}')
+VO_POLICY = 'audio-only-v1:'
 
 
 def normalize(text):
@@ -55,9 +56,14 @@ def media_revision(media):
     return sha.hexdigest()
 
 
+def voiceover_receipt(revision):
+    return VO_POLICY + revision
+
+
 def voiceover_ready(media, revision):
     try:
-        return media.with_suffix('.vo-ready').read_text().strip() == revision
+        return bool(DIGEST.fullmatch(revision)) and (
+            media.with_suffix('.vo-ready').read_text().strip() == voiceover_receipt(revision))
     except (OSError, UnicodeError):
         return False
 

@@ -21,7 +21,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[2] / 'clip-forge/skills/clipping-streams/scripts'
 sys.path[:0] = [str(SCRIPTS), str(Path(__file__).resolve().parents[1] / 'posting')]
 import _https  # noqa: E402  # pyright: ignore[reportMissingImports]
-from publish_status import media_revision  # noqa: E402  # pyright: ignore[reportMissingImports]
+from publish_status import media_revision, voiceover_receipt  # noqa: E402  # pyright: ignore[reportMissingImports]
 
 VO_DELAY_MS = 200
 DUCK_TAIL_S = .10
@@ -106,7 +106,7 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
         duck_until = round(dur + delay + DUCK_TAIL_S, 3)
         if source_audio < duck_until:
             raise ValueError('Originalton endet vor dem Voice-over-Zeitfenster')
-        windows = {'text': text, 'start': delay, 'end': round(delay + dur, 3), 'duck_until': duck_until}
+        windows = {'start': delay, 'end': round(delay + dur, 3), 'duck_until': duck_until}
         info = stage / 'voiceover.json'
         info.write_text(json.dumps(windows, ensure_ascii=False), encoding='utf-8')
         temp_work = stage / 'work' / rec
@@ -137,7 +137,7 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
             raise ValueError('Unbekannter Encoder im Original-Render')
         flags = ['--reviewed-emoji-only'] if sidecar.get('reviewed_emoji_only') is True else []
         subprocess.run(['uv', 'run', '--quiet', str(SCRIPTS / 'render_clip.py'), '--vod-id', rec, '--clip', clip,
-                        '--encoder', encoder, '--voiceover-captions', str(info), *flags], env=env, stdout=sys.stderr, check=True)
+                        '--encoder', encoder, '--voiceover-window', str(info), *flags], env=env, stdout=sys.stderr, check=True)
         rendered = stage / 'out' / rec / f'{clip}.mp4'
         refreshed = json.loads(rendered.with_suffix('.json').read_text())
         if refreshed.get('render_input_sha256') != input_digest:
@@ -160,7 +160,7 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
         if mixed_audio < windows['end']:
             raise ValueError('Voice-over im fertigen Audiomix abgeschnitten')
         ready = stage / 'vo-ready'
-        ready.write_text(media_revision(mixed) + '\n', encoding='ascii')
+        ready.write_text(voiceover_receipt(media_revision(mixed)) + '\n', encoding='ascii')
         after = original.stat()
         if (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns):
             raise ValueError('Original wurde während des Mischens geändert; Abbruch')
@@ -179,7 +179,7 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
         info.replace(work / 'render' / f'{clip}.vo.json')
         # Publication checks the hash, not the backup; partial work can never pass this gate.
         ready.replace(receipt)
-    return {'ok': True, 'clip': str(original), 'vo_text': text, 'vo_s': round(dur, 2), 'vo_captions': True}
+    return {'ok': True, 'clip': str(original), 'vo_text': text, 'vo_s': round(dur, 2), 'vo_captions': False}
 
 
 def main() -> None:

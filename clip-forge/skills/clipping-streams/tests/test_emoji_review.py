@@ -63,11 +63,10 @@ class ReviewRenderTest(unittest.TestCase):
     def test_no_overlay_for_ducked_word_close_cue_or_unsupported_glyph(self):
         words = [word("Game", .5), word("Karte", 2.), word("Handy!", 2.5)]
         plan = [marker(0, .5, "Game", "🎮"), marker(0, 2., "Karte", "💳"), marker(0, 2.5, "Handy!", "📱")]
-        vo = ("Das Intro.", .2, .8, 1.)
         candidates = set()
-        self.assertEqual([c.glyph for c in render(words, plan, voiceover=vo, candidate_glyphs=candidates)[0]], ["💳"])
+        self.assertEqual([c.glyph for c in render(words, plan, duck_until=1., candidate_glyphs=candidates)[0]], ["💳"])
         self.assertEqual(candidates, {"💳", "📱"})
-        self.assertEqual([c.glyph for c in render(words, plan, voiceover=vo, unavailable_glyphs={"💳"})[0]], ["📱"])
+        self.assertEqual([c.glyph for c in render(words, plan, duck_until=1., unavailable_glyphs={"💳"})[0]], ["📱"])
 
     def test_number_merge_does_not_move_cue_earlier(self):
         words = [word("hundert", 1.), word("zwanzig", 1.35), word("Euro!", 1.7)]

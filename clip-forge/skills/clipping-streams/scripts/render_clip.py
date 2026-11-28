@@ -129,7 +129,7 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
               burn_hook: bool = True, language: str = "de",
               candidate_glyphs: set[str] | None = None,
               unavailable_glyphs: set[str] | None = None,
-              voiceover: tuple[str, float, float, float] | None = None) -> tuple[str, float, int]:
+              duck_until: float = 0.) -> tuple[str, float, int]:
     template = (_lib.ASSETS_DIR / "caption-style.ass").read_text(encoding="utf-8")
     events: list[str] = []
     out_t = 0.0
@@ -137,24 +137,7 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
     styled = emoji_cues is not None and rconf.get("caption_emojis", True)
     per = int(rconf.get("emoji_words_per_caption", 5) if styled else rconf.get("words_per_caption", 3))
     upper = bool(rconf.get("caption_uppercase", styled))
-    duck_until = voiceover[3] if voiceover else 0.
-    if voiceover:
-        text, start, end, _ = voiceover
-        tokens = ass_text(text.upper() if upper else text).split()
-        groups = group_subtitles([{"s": 0., "e": 0., "w": token} for token in tokens], len(tokens), True)
-        style = "PhraseCaption" if styled else "Caption"
-        # Timing is anchored to the VO audio, not the ducked source or made-up word highlights.
-        total_chars = sum(map(len, tokens))
-        offset = 0
-        for group in groups:
-            lines = [w["w"] for w in group]
-            split = line_break([t.upper() for t in lines])
-            caption = r"\N".join((" ".join(lines[:split]), " ".join(lines[split:]))) if split > 0 else " ".join(lines)
-            cue_start = start + (end - start) * offset / total_chars
-            offset += sum(map(len, lines))
-            cue_end = start + (end - start) * offset / total_chars
-            events.append(f"Dialogue: 0,{ass_time(cue_start)},{ass_time(cue_end)},{style},,0,0,0,,{caption}")
-        n_words += len(tokens)
+
     phrase = 0
     previous_corners: set[int] = set()
     last_shown: dict[str, float] = {}
@@ -170,7 +153,7 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
     for seg_i, seg in enumerate(clip["segments"]):
         a, b = float(seg["start"]), float(seg["end"])
         seg_words = [w for w in words if a - .05 <= w["s"] < b and a < w["e"] <= b + .05]
-        if voiceover and out_t < duck_until:
+        if out_t < duck_until:
             seg_words = [w for w in seg_words if out_t + max(a, w["s"]) - a >= duck_until]
         visible_starts = {w["s"] for w in seg_words} if seg_i in reviewed else set()
         n_words += len(seg_words)
@@ -384,8 +367,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="nur ffmpeg-Befehle zeigen, nichts schreiben")
     parser.add_argument("--reviewed-emoji-only", action="store_true",
                         help="auch bei legacy nur kontextgeprüfte Caption-Pop-outs zulassen")
-    parser.add_argument("--voiceover-captions", type=Path,
-                        help="JSON mit text/start/end/duck_until des Audiomixes (ein Clip)")
+    parser.add_argument("--voiceover-window", "--voiceover-captions", type=Path,
+                        help="JSON mit start/end/duck_until; unterdrückt geduckte Original-Untertitel (ein Clip)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     log = _lib.setup("render_clip", args.verbose)
@@ -428,19 +411,16 @@ def main() -> None:
         clips = [c for c in clips if c.get("id") in wanted]
         if not clips:
             _lib.fail(f"Clip(s) {sorted(wanted)} nicht in clips.json", _lib.EXIT_INVALID)
-    voiceover = None
-    if args.voiceover_captions:
+    duck_until = 0.
+    if args.voiceover_window:
         try:
             if len(clips) != 1:
                 raise ValueError("Voice-over-Unterlagen benötigen genau einen Clip")
-            data = _lib.read_json(args.voiceover_captions)
-            text = data["text"]
+            data = _lib.read_json(args.voiceover_window)
             start, end, duck_until = (float(data[k]) for k in ("start", "end", "duck_until"))
             length = sum(float(s["end"]) - float(s["start"]) for s in clips[0]["segments"])
-            if (not isinstance(text, str) or not ass_text(text) or not all(map(math.isfinite, (start, end, duck_until)))
-                    or not 0 <= start < end <= duck_until < length):
-                raise ValueError("ungültiger Voice-over-Text oder Zeitbereich")
-            voiceover = (text, start, end, duck_until)
+            if not all(map(math.isfinite, (start, end, duck_until))) or not 0 <= start < end <= duck_until < length:
+                raise ValueError("ungültiger Voice-over-Zeitbereich")
         except (OSError, KeyError, TypeError, ValueError) as exc:
             _lib.fail(f"Voice-over-Untertitel: {exc}", _lib.EXIT_INVALID)
     words = _lib.load_words(work, include_language=True)
@@ -489,7 +469,7 @@ def main() -> None:
             use_hook_card = hook_s > 0 and bool(hook_text)
             ass, total, n_words = build_ass(clip, words, rconf, credit, emoji_cues=emoji_cues,
                                             burn_hook=not use_hook_card, language=language,
-                                            candidate_glyphs=candidate_glyphs, voiceover=voiceover)
+                                            candidate_glyphs=candidate_glyphs, duck_until=duck_until)
             overlay = rdir / f"{cid}.emoji.mov" if emoji_cues else None
             hook_s = min(hook_s, total)
             intended_hook = (rdir / f"{cid}.hook.png", hook_s) if use_hook_card else None
@@ -506,7 +486,8 @@ def main() -> None:
             input_digest = render_input_digest(clip, sections, words, rconf, layout, cam, use_game, language, credit)
         except OSError as exc:
             _lib.fail(f"{cid}: Quellabschnitt nicht verfügbar: {exc}", _lib.EXIT_ERROR, clip=cid)
-        cache_key = hashlib.sha256(json.dumps([1, input_digest, use_apple_emoji, voiceover,
+        # Keep existing unmixed cache keys; never reuse a render with the old VO text.
+        cache_key = hashlib.sha256(json.dumps([2 if duck_until else 1, input_digest, use_apple_emoji, duck_until or None,
                                                args.reviewed_emoji_only]).encode("utf-8")).hexdigest()
         if out.is_file() and not args.force:
             try:
@@ -546,7 +527,7 @@ def main() -> None:
                 if emoji_cues is not None:
                     emoji_cues.clear()
                 ass, total, n_words = build_ass(clip, words, rconf, credit, emoji_cues=emoji_cues,
-                                                language=language, voiceover=voiceover)
+                                                language=language, duck_until=duck_until)
         hook_overlay = (hook_image, hook_s) if hook_image is not None else None
         if overlay is not None and emoji_cues:
             try:
@@ -559,7 +540,7 @@ def main() -> None:
                     emoji_cues = []
                     ass, total, n_words = build_ass(clip, words, rconf, credit, emoji_cues=emoji_cues,
                                                     burn_hook=hook_image is None, language=language,
-                                                    unavailable_glyphs=missing, voiceover=voiceover)
+                                                    unavailable_glyphs=missing, duck_until=duck_until)
                 if emoji_cues:
                     caption_emoji.render_overlay(ffmpeg, emoji_cues, rconf, overlay, _lib.ASSETS_DIR, sprites=sprites)
                 else:
@@ -571,7 +552,7 @@ def main() -> None:
                 overlay = None
                 emoji_cues = None
                 ass, total, n_words = build_ass(clip, words, rconf, credit,
-                                                burn_hook=hook_image is None, language=language, voiceover=voiceover)
+                                                burn_hook=hook_image is None, language=language, duck_until=duck_until)
         try:
             ass_path.write_text(ass, encoding="utf-8")
             used = encoder
