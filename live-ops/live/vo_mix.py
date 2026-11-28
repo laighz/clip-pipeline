@@ -25,6 +25,26 @@ from publish_status import media_revision, voiceover_receipt  # noqa: E402  # py
 
 VO_DELAY_MS = 200
 DUCK_TAIL_S = .10
+ORIGINAL_INTRO_GAIN = .05
+ORIGINAL_FADE_IN_S = .12
+
+
+def voiceover_text(clip: dict, override: str | None = None) -> tuple[str, str]:
+    """Return the display text and a single, optionally respelled TTS sentence."""
+    canonical = clip.get('vo')
+    value = override if override is not None else canonical
+    if not isinstance(value, str) or not (text := ' '.join(value.split())):
+        raise ValueError('Kein Voice-over-Text im Clip')
+    matches_plan = isinstance(canonical, str) and text == ' '.join(canonical.split())
+    spoken = clip.get('vo_spoken', text) if matches_plan else text
+    if not isinstance(spoken, str) or not (spoken := ' '.join(spoken.split())):
+        raise ValueError('vo_spoken muss ein vollständiger Satz sein')
+    return text, spoken
+
+
+def original_volume_filter(duck_until: float) -> str:
+    gain = ORIGINAL_INTRO_GAIN
+    return f"volume='{gain}+{1-gain}*clip((t-{duck_until:.3f})/{ORIGINAL_FADE_IN_S},0,1)':eval=frame"
 
 
 def synthesize(text: str) -> bytes:
@@ -76,9 +96,7 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
     before = original.stat()
     plan = json.loads((work / 'clips.json').read_text())
     selected = next(c for c in plan['clips'] if c['id'] == clip)
-    text = ' '.join((text if text is not None else selected.get('vo') or '').split())
-    if not text:
-        raise ValueError('Kein Voice-over-Text im Clip')
+    text, spoken = voiceover_text(selected, text)
     sidecar = json.loads((out / f'{clip}.json').read_text())
     if sidecar['segments'] != selected['segments']:
         raise ValueError('Schnittplan hat sich geändert; Original neu rendern')
@@ -95,7 +113,7 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
         stage = Path(directory)
         mp3 = stage / f'{clip}.vo.mp3'
         if reuse is None:
-            mp3.write_bytes(synthesize(text))
+            mp3.write_bytes(synthesize(spoken))
         else:
             shutil.copy2(reuse, mp3)
         dur = float(subprocess.check_output(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
@@ -145,7 +163,7 @@ def process(home: Path, rec: str, clip: str, text: str | None, reuse: Path | Non
         if video_timeline(rendered) != timeline:
             raise ValueError('Bildzeitachse beim Untertitel-Render verändert; Original unverändert')
         # Keep the already normalized original audio, but use the picture with matching subtitles.
-        filt = (f"[1:a]volume='if(lt(t,{duck_until:.3f}),0.12,1)':eval=frame[a0];"
+        filt = (f"[1:a]{original_volume_filter(duck_until)}[a0];"
                 f"[2:a]adelay={VO_DELAY_MS}|{VO_DELAY_MS},volume=2.0[a1];"
                 "[a0][a1]amix=inputs=2:duration=first:normalize=0,"
                 "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[a]")
