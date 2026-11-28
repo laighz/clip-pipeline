@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import _lib
+import emoji_catalog
 from caption_emoji_plan import (FIELD, MAX_MARKERS, MIN_GAP, receipt_markers, review_path, revision,
                                 validate_markers, word_context)
 
@@ -263,7 +264,14 @@ def review(work: Path, clip_id: str, *, media: Path | None = None,
     context = word_context(clip, words)
     tag = revision(clip, words)
     if describe:
-        return {"revision": tag, "words": context}
+        warnings = []
+        try:
+            suggestions = [{"id": row["id"], "emojis": glyphs} for row in context
+                           if (glyphs := emoji_catalog.suggest_word(row["word"]))]
+        except (OSError, ValueError, EOFError, KeyError, TypeError, AttributeError, zlib.error):
+            suggestions = []
+            warnings.append("Emoji-Katalog nicht lesbar; keine Vorschläge")
+        return {"revision": tag, "words": context, "emoji_suggestions": suggestions, "warnings": warnings}
     if decision is None and target.is_file():
         try:
             prior = _lib.read_json(target)

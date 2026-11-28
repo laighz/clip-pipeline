@@ -1,4 +1,5 @@
 """The subtitle's spoken words remain intact when a keyword gets an icon."""
+import hashlib
 import json
 import math
 import os
@@ -332,6 +333,33 @@ class CaptionEmojiRenderTest(unittest.TestCase):
         result = self.render(30, "--reviewed-emoji-only")
         self.assertEqual(result["clips"][0]["caption_emojis"], 0)
         self.assertTrue(any("seit dem Emoji-Review geändert" in w for w in result["warnings"]))
+
+    def test_reviewed_cache_rebuilds_when_short_word_becomes_long_caption(self):
+        import _lib  # pyright: ignore[reportMissingImports]
+
+        plan = json.loads((self.work / "clips.json").read_text())["clips"][0]
+        words = [{"w": "eins", "s": .1, "e": .22}, {"w": "Komma", "s": .22, "e": .36},
+                 {"w": "12345678901234567890", "s": .36, "e": .82}]
+        transcript = self.work / "transcripts" / "s0-1.json"
+        data = json.loads(transcript.read_text())
+        transcript.write_text(json.dumps({**data, "words": words, "language": "de"}))
+        loaded = _lib.load_words(self.work, include_language=True)
+        review = caption_emoji_plan.review_path(self.work, "clip01")
+        review.write_text(json.dumps({"revision": caption_emoji_plan.revision(plan, loaded),
+                                      "emoji_popouts": [{"segment": 0, "start": .1, "word": "eins", "emoji": "🚗"}]}))
+        first = self.render(30, "--reviewed-emoji-only")["clips"][0]
+        self.assertEqual(first["caption_emojis"], 1)
+        self.assertIn("1,12345678901234567890", (self.render_dir / "clip01.ass").read_text())
+        sidecar = Path(first["out"]).with_suffix(".json")
+        before = json.loads(sidecar.read_text())
+        # The old renderer keyed the reviewed token 'eins', not the merged caption.
+        old_inputs = [1, before["render_input_sha256"], True, None, True, "reviewed-emoji-onset-v1"]
+        old_key = hashlib.sha256(json.dumps(old_inputs).encode("utf-8")).hexdigest()
+        sidecar.write_text(json.dumps({**before, "render_cache_key": old_key}))
+        refreshed = self.render(30, "--reviewed-emoji-only")["clips"][0]
+        self.assertEqual(refreshed["status"], "gerendert")
+        self.assertEqual(refreshed["caption_emojis"], 1)
+        self.assertEqual(self.render(30, "--reviewed-emoji-only")["clips"][0]["status"], "schon da")
 
     def test_explicit_empty_review_invalidates_legacy_emoji_render(self):
         review = caption_emoji_plan.review_path(self.work, "clip01")

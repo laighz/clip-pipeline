@@ -19,6 +19,13 @@ WORD_EDGE = re.compile(r"^\W+|\W+$")
 BREAK = re.compile(r"[.!?,;:…–—]\W*$")
 LEADING_BREAK = re.compile(r"^\W*[.!?,;:…–—]")
 MAX_WORDS = 6
+REVIEW_ALIASES = {
+    "🚗": ("autohaus", "autorennen", "autotür"),
+    "🦫": ("biberbau",),
+    "🎮": ("videospiel",),
+    "🏍️": ("motorbike", "bike"),
+    "🚲": ("bike",),
+}
 # Only concrete labels are considered automatically. Generic tags, faces, flags,
 # identity/medical symbols and technical components are available for lookup.
 CONCRETE = frozenset({"Animals & Nature", "Food & Drink", "Travel & Places", "Activities", "Objects"})
@@ -157,6 +164,60 @@ def search(query: str) -> list[dict[str, Any]]:
             continue
         ranked.append((rank, row["is_skin_variant"], len(fields[1]), row))
     return [r[-1] for r in sorted(ranked, key=lambda r: r[:3])]
+
+
+@lru_cache(maxsize=1)
+def review_index() -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, str], tuple[int, ...],
+                            dict[str, set[str]]]:
+    """Index the offline catalog for optional editorial suggestions, not triggers."""
+    names: defaultdict[str, set[str]] = defaultdict(set)
+    keywords: defaultdict[str, set[str]] = defaultdict(set)
+    german_names: defaultdict[str, set[str]] = defaultdict(set)
+    aliases: defaultdict[str, set[str]] = defaultdict(set)
+    for row in entries():
+        if row["unicode_status"] != "fully-qualified" or row["is_skin_variant"]:
+            continue
+        glyph = row["emoji"]
+        de = folded(row["name_de"])
+        for name in (de, folded(row["emojipedia_name"])):
+            if WORD.fullmatch(name):
+                names[name].add(glyph)
+        if de.isalpha():
+            german_names[de].add(glyph)
+        for tag in row["suggestions_de"] + row["suggestions_en"]:
+            key = folded(tag)
+            if len(key) >= 3 and WORD.fullmatch(key):
+                keywords[key].add(glyph)
+        for alias in (*REVIEW_ALIASES.get(glyph, ()), *CURATED.get(glyph, "").split("|")):
+            key = folded(alias)
+            if WORD.fullmatch(key):
+                aliases[key].add(glyph)
+    roots = {name: next(iter(glyphs)) for name, glyphs in german_names.items() if len(glyphs) == 1}
+    lengths = tuple(sorted({len(name) for name in roots if len(name) >= 7}, reverse=True))
+    return names, aliases, roots, lengths, keywords
+
+
+def suggest_word(text: str) -> list[str]:
+    """Rank exact forms and plausible German compounds at the full token's onset."""
+    word = token(text).replace("‑", "-").replace("‐", "-")
+    if not WORD.fullmatch(word):
+        return []
+    names, aliases, roots, lengths, keywords = review_index()
+    ranked = sorted(names.get(word, ())) + sorted(aliases.get(word, ()))
+    # A hyphen supplies a boundary. Unseparated compounds need a distinctive
+    # full label, at an edge and followed/preceded by a nontrivial constituent.
+    for part in word.split("-"):
+        if part != word and part in roots:
+            ranked.append(roots[part])
+        if not part.isalpha():
+            continue
+        for size in lengths:
+            if size <= len(part) - 3:
+                ranked.extend(roots[root] for root in (part[:size], part[-size:]) if root in roots)
+    tags = keywords.get(word, ())
+    if len(tags) == 1:  # Shared tags such as “Tier” are not useful hints.
+        ranked.extend(tags)
+    return list(dict.fromkeys(ranked))[:3]
 
 
 if __name__ == "__main__":
