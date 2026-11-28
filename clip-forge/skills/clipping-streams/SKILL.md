@@ -244,6 +244,9 @@ pro Clip als `[x, y, w, h]`, normalerweise von `detect_facecam.py --write-clip` 
 
 Vor dem ersten Render pro ausgewähltem Clip `review_caption_emoji.py --vod-id <vod-id> --clip clip01 --context`
 ausführen. Der betreuende Agent entscheidet anhand dieser Wort-IDs und des benötigten Bildkontexts.
+`emoji_suggestions` listet lokale Katalogtreffer: DE/EN-Wörter, ausgewählte Synonyme und markante
+Bestandteile von Komposita (z. B. `Weihnachtsbaumkönig` → 🎄, `Motorradfahrer` → 🏍️).
+Ein Vorschlag aktiviert noch nichts. Wird er gewählt, bleibt das ganze gesprochene Wort der Zeitanker.
 Mit `--decision-file <datei>` ein Objekt wie `{"revision":"<aus --context>","choices":[{"id":12,"emoji":"🎮"}]}`
 oder `choices: []` speichern. Das Skript schreibt den Beleg nach `emoji-reviews/<clip>.json`, getrennt
 von `clips.json`. Es übernimmt den Original-Wortanker; ändert sich der Schnitt oder das geschnittene

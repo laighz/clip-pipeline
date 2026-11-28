@@ -182,7 +182,9 @@ def build_ass(clip: dict[str, Any], words: list[dict], rconf: dict[str, Any],
                         last_shown[glyph] = start
                     if len(matches) == 2:
                         break
-            elif styled and split >= 0 and visible_starts:
+            elif styled and visible_starts:
+                # An oversized single word still renders on one line. Its explicit
+                # pop-out uses the same safe corner bounds as any other one-line cue.
                 for source_start, glyph in reviewed.get(seg_i, ()):
                     if source_start not in visible_starts or not group[0]["s"] <= source_start < group_end:
                         continue
@@ -495,7 +497,9 @@ def main() -> None:
         cache_inputs = [2 if duck_until else 1, input_digest, use_apple_emoji, duck_until or None,
                         args.reviewed_emoji_only]
         if use_apple_emoji and clip.get(caption_emoji_plan.FIELD):
-            cache_inputs.append("reviewed-emoji-onset-v1")
+            # Eligibility changed for wide captions, including cases where a
+            # short reviewed token is merged into a long display-only number.
+            cache_inputs.append("reviewed-emoji-onset-v2")
         cache_key = hashlib.sha256(json.dumps(cache_inputs).encode("utf-8")).hexdigest()
         if out.is_file() and not args.force:
             try:
